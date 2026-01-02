@@ -2,6 +2,7 @@ use crate::page::Page;
 use crate::profiles::ChaserProfile;
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use chromiumoxide_cdp::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide_cdp::cdp::browser_protocol::fetch::{
     ContinueRequestParams, DisableParams as FetchDisableParams, EnableParams as FetchEnableParams,
     FulfillRequestParams, HeaderEntry, RequestPattern,
@@ -118,8 +119,9 @@ impl ChaserPage {
     /// Apply a ChaserProfile to this page in one clean call.
     ///
     /// This method:
-    /// 1. Sets the User-Agent HTTP header
-    /// 2. Injects the profile's bootstrap script for JS-level spoofing
+    /// 1. Sets viewport dimensions and DPR via CDP (Emulation.setDeviceMetricsOverride)
+    /// 2. Sets the User-Agent HTTP header
+    /// 3. Injects the profile's bootstrap script for JS-level spoofing
     ///
     /// **IMPORTANT:** Call this BEFORE navigating to the target site.
     ///
@@ -129,16 +131,31 @@ impl ChaserPage {
     /// let page = browser.new_page("about:blank").await?;
     /// let chaser = ChaserPage::new(page);
     /// chaser.apply_profile(&profile).await?;
-    /// chaser.inner().goto("https://example.com").await?;
+    /// chaser.goto("https://example.com").await?;
     /// ```
     pub async fn apply_profile(&self, profile: &ChaserProfile) -> Result<()> {
-        // 1. Set the HTTP User-Agent header
+        // 1. Set viewport and DPR via CDP - this ensures innerWidth/Height and
+        // devicePixelRatio match what we spoof in JS
+        self.page
+            .execute(
+                SetDeviceMetricsOverrideParams::builder()
+                    .width(profile.screen_width() as i64)
+                    .height(profile.screen_height() as i64)
+                    .device_scale_factor(profile.device_pixel_ratio() as f64)
+                    .mobile(false)
+                    .build()
+                    .map_err(|e| anyhow!("Failed to build device metrics: {}", e))?,
+            )
+            .await
+            .map_err(|e| anyhow!("Failed to set device metrics: {}", e))?;
+
+        // 2. Set the HTTP User-Agent header
         self.page
             .set_user_agent(&profile.user_agent())
             .await
             .map_err(|e| anyhow!("{}", e))?;
 
-        // 2. Inject the bootstrap script to run on every new document
+        // 3. Inject the bootstrap script to run on every new document
         self.page
             .execute(AddScriptToEvaluateOnNewDocumentParams {
                 source: profile.bootstrap_script(),
