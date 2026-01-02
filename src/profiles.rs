@@ -455,9 +455,13 @@ impl ChaserProfile {
                     return originalCanPlayType.apply(this, arguments);
                 }}, 'canPlayType');
 
-                // ========== 6. WEBDRIVER (DELETE ONLY - don't mock it) ==========
-                // Just kill it. Don't redefine - that creates a detectable property descriptor.
-                try {{ delete Object.getPrototypeOf(navigator).webdriver; }} catch(e) {{}}
+                // ========== 6. WEBDRIVER (SET TO FALSE) ==========
+                // Deleting creates undefined which is DETECTABLE by rebrowser-bot-detector!
+                // Real browsers have navigator.webdriver = false
+                Object.defineProperty(navProto, 'webdriver', {{
+                    get: makeNative(function() {{ return false; }}, 'get webdriver'),
+                    configurable: true, enumerable: true
+                }});
 
                 // ========== 7. TIMEZONE & LOCALE ==========
                 Object.defineProperty(navProto, 'language', {{
