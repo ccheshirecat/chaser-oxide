@@ -32,43 +32,52 @@ futures = "0.3"
 ## Quick Start
 
 ```rust
-use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile};
-use futures::StreamExt;
+use chaser_oxide::{ChaserPage, Os};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 1. Create a fingerprint profile
-    let profile = ChaserProfile::windows().build();
-    
-    // 2. Launch browser
-    let (browser, mut handler) = Browser::launch(
-        BrowserConfig::builder().build()?
-    ).await?;
+    // ONE LINE - launches browser with all stealth settings, profile applied
+    let (browser, chaser) = ChaserPage::launch(Os::Windows).await?;
 
-    tokio::spawn(async move {
-        while let Some(_) = handler.next().await {}
-    });
-
-    // 3. Create page and wrap in ChaserPage
-    let page = browser.new_page("about:blank").await?;
-    let chaser = ChaserPage::new(page);
-
-    // 4. Apply profile (sets UA + injects stealth scripts) - BEFORE navigation
-    chaser.apply_profile(&profile).await?;
-
-    // 5. Navigate to target
+    // Navigate and interact
     chaser.goto("https://example.com").await?;
 
-    // 6. Execute JS safely (stealth - no Runtime.enable leak)
-    let title: Option<String> = chaser.evaluate("document.title").await?;
+    // Execute JS safely (stealth - no Runtime.enable leak)
+    let title = chaser.evaluate("document.title").await?;
 
-    // 7. Use human-like interaction methods
+    // Human-like interactions
     chaser.move_mouse_human(400.0, 300.0).await?;
     chaser.click_human(500.0, 400.0).await?;
     chaser.type_text("Search query").await?;
 
+    // Full browser access for cookies, etc.
+    let cookies = browser.get_cookies().await?;
+
     Ok(())
 }
+```
+
+### Launch Options
+
+```rust
+// Headless (default) - for production
+let (browser, chaser) = ChaserPage::launch(Os::Windows).await?;
+
+// Headed - for debugging (visible browser)
+let (browser, chaser) = ChaserPage::launch_headed(Os::Windows).await?;
+
+// Custom profile
+let profile = ChaserProfile::windows()
+    .chrome_version(131)
+    .gpu(Gpu::NvidiaRTX4080)
+    .build();
+let (browser, chaser) = ChaserPage::launch_with_profile(profile).await?;
+
+// Available OS profiles
+Os::Windows     // Windows 10, RTX 3080, 1920x1080
+Os::MacOSArm    // macOS M4 Max, 1728x1117, 2x DPR
+Os::MacOSIntel  // macOS Intel, 1440x900, 2x DPR  
+Os::Linux       // Linux, GTX 1660, 1920x1080
 ```
 
 ## API Reference
@@ -119,8 +128,10 @@ pub enum Gpu {
 
 ```rust
 impl ChaserPage {
-    // Profile
-    async fn apply_profile(&self, profile: &ChaserProfile) -> Result<()>;
+    // LAUNCH (recommended - handles everything)
+    async fn launch(os: Os) -> Result<(Browser, Self)>;
+    async fn launch_headed(os: Os) -> Result<(Browser, Self)>;
+    async fn launch_with_profile(profile: ChaserProfile) -> Result<(Browser, Self)>;
     
     // Safe Page Operations
     async fn goto(&self, url: &str) -> Result<()>;
