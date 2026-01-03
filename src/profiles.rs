@@ -365,7 +365,6 @@ impl ChaserProfile {
                 }});
 
                 // Spoof outerWidth/outerHeight to match (prevents TARDIS effect)
-                // outerWidth should be >= innerWidth, add ~100px for browser chrome
                 Object.defineProperty(window, 'outerWidth', {{
                     get: makeNative(function() {{ return {screen_w}; }}, 'get outerWidth'),
                     configurable: true
@@ -629,62 +628,8 @@ impl ChaserProfile {
                     }});
                 }} catch(e) {{}}
 
-                // ========== 11. IFRAME PROTECTION (PASSIVE - MutationObserver) ==========
-                // Do NOT hook document.createElement - it crashes Turnstile (Error 600010)
-                // Use MutationObserver to passively detect new iframes without touching native APIs
-                const setupIframeObserver = () => {{
-                    const iframeObserver = new MutationObserver((mutations) => {{
-                        for (const mutation of mutations) {{
-                            for (const node of mutation.addedNodes) {{
-                                if (node.tagName === 'IFRAME') {{
-                                    // Safety: Ignore Cloudflare/Turnstile frames entirely
-                                    try {{
-                                        if (node.src && (
-                                            node.src.includes('cloudflare.com') || 
-                                            node.src.includes('turnstile')
-                                        )) {{
-                                            continue; 
-                                        }}
-                                    }} catch(e) {{ continue; }}
-
-                                    // Inject Chrome object into same-origin frames
-                                    try {{
-                                        if (node.contentWindow && !node.contentWindow.chrome) {{
-                                            node.contentWindow.chrome = window.chrome;
-                                        }}
-                                        
-                                        // Also catch late loaders
-                                        node.addEventListener('load', () => {{
-                                            try {{
-                                                if (node.src && (
-                                                    node.src.includes('cloudflare.com') || 
-                                                    node.src.includes('turnstile')
-                                                )) return;
-                                                
-                                                if (node.contentWindow && !node.contentWindow.chrome) {{
-                                                    node.contentWindow.chrome = window.chrome;
-                                                }}
-                                            }} catch(e) {{}}
-                                        }});
-                                    }} catch(e) {{}}
-                                }}
-                            }}
-                        }}
-                    }});
-                    
-                    // Start observing
-                    iframeObserver.observe(document.documentElement || document.body || document, {{
-                        childList: true,
-                        subtree: true
-                    }});
-                }};
-                
-                // Wait for DOM to be ready
-                if (document.documentElement) {{
-                    setupIframeObserver();
-                }} else {{
-                    document.addEventListener('DOMContentLoaded', setupIframeObserver);
-                }}
+                // NOTE: Iframe protection (MutationObserver/createElement hooks) REMOVED
+                // These were causing Turnstile detection (Error 600010)
 
             }})();
         "#,
