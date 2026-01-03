@@ -104,6 +104,8 @@ impl ChaserPage {
     async fn launch_internal(profile: ChaserProfile, headed: bool) -> Result<(Browser, Self)> {
         // Build browser config with ALL the right settings
         let mut builder = BrowserConfig::builder()
+            // Use patched Chromium build (chaser-browser)
+            .chrome_executable("/Users/marcxavier/chaser-browser/src/out/chaser-browser/Chromium.app/Contents/MacOS/Chromium")
             .window_size(profile.screen_width(), profile.screen_height())
             .args(vec![
                 "--disable-blink-features=AutomationControlled".to_string(),
