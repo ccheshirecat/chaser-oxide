@@ -302,21 +302,24 @@ impl ChaserProfile {
                     return func;
                 }};
 
-                // ========== CDP/AUTOMATION MARKER CLEANUP ==========
+                // ========== CDP/AUTOMATION MARKER CLEANUP (ONCE AT STARTUP) ==========
                 const cleanCDPMarkers = () => {{
-                    for (const prop of Object.keys(window)) {{
-                        if (prop.match(/^cdc_|^\\$cdc_|^__webdriver|^__selenium|^__driver/)) {{
+                    // Use getOwnPropertyNames for more thorough enumeration
+                    const windowProps = Object.getOwnPropertyNames(window);
+                    for (const prop of windowProps) {{
+                        if (prop.match(/^cdc_|^\\$cdc_|^__webdriver|^__selenium|^__driver|^\\$chrome_/)) {{
                             try {{ delete window[prop]; }} catch(e) {{}}
                         }}
                     }}
-                    for (const prop of Object.keys(document)) {{
-                        if (prop.match(/^\\$cdc_|^__webdriver|^__selenium|^__driver|^\\$chrome_/)) {{
+                    const docProps = Object.getOwnPropertyNames(document);
+                    for (const prop of docProps) {{
+                        if (prop.match(/^cdc_|^\\$cdc_|^__webdriver|^__selenium|^__driver|^\\$chrome_/)) {{
                             try {{ delete document[prop]; }} catch(e) {{}}
                         }}
                     }}
                 }};
+                // Run exactly once before site loads - NO setInterval
                 cleanCDPMarkers();
-                setInterval(cleanCDPMarkers, 100);
 
                 // Get Navigator prototype
                 const navProto = Object.getPrototypeOf(navigator);
@@ -626,13 +629,24 @@ impl ChaserProfile {
                     }});
                 }} catch(e) {{}}
 
-                // ========== 11. IFRAME PROTECTION ==========
+                // ========== 11. IFRAME PROTECTION (Whitelisted for Turnstile) ==========
                 const originalCreateElement = document.createElement;
                 document.createElement = makeNative(function(...args) {{
                     const element = originalCreateElement.apply(this, args);
                     if (args[0] && args[0].toLowerCase() === 'iframe') {{
                         element.addEventListener('load', () => {{
                             try {{
+                                // CRITICAL: Do NOT touch Cloudflare/Turnstile frames
+                                // Accessing cross-origin frames triggers detection or CORS errors
+                                if (element.src && (
+                                    element.src.includes('cloudflare.com') ||
+                                    element.src.includes('challenges.cloudflare.com') ||
+                                    element.src.includes('turnstile')
+                                )) {{
+                                    return; // Leave Turnstile alone!
+                                }}
+                                
+                                // For other frames (same-origin), inject chrome
                                 if (element.contentWindow && !element.contentWindow.chrome) {{
                                     element.contentWindow.chrome = window.chrome;
                                 }}
