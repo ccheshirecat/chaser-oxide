@@ -629,32 +629,53 @@ impl ChaserProfile {
                     }});
                 }} catch(e) {{}}
 
-                // ========== 11. IFRAME PROTECTION (Whitelisted for Turnstile) ==========
-                const originalCreateElement = document.createElement;
-                document.createElement = makeNative(function(...args) {{
-                    const element = originalCreateElement.apply(this, args);
-                    if (args[0] && args[0].toLowerCase() === 'iframe') {{
-                        element.addEventListener('load', () => {{
-                            try {{
-                                // CRITICAL: Do NOT touch Cloudflare/Turnstile frames
-                                // Accessing cross-origin frames triggers detection or CORS errors
-                                if (element.src && (
-                                    element.src.includes('cloudflare.com') ||
-                                    element.src.includes('challenges.cloudflare.com') ||
-                                    element.src.includes('turnstile')
-                                )) {{
-                                    return; // Leave Turnstile alone!
-                                }}
-                                
-                                // For other frames (same-origin), inject chrome
-                                if (element.contentWindow && !element.contentWindow.chrome) {{
-                                    element.contentWindow.chrome = window.chrome;
-                                }}
-                            }} catch(e) {{}}
-                        }});
+                // ========== 11. IFRAME PROTECTION (PASSIVE - MutationObserver) ==========
+                // Do NOT hook document.createElement - it crashes Turnstile (Error 600010)
+                // Use MutationObserver to passively detect new iframes without touching native APIs
+                const iframeObserver = new MutationObserver((mutations) => {{
+                    for (const mutation of mutations) {{
+                        for (const node of mutation.addedNodes) {{
+                            if (node.tagName === 'IFRAME') {{
+                                // Safety: Ignore Cloudflare/Turnstile frames entirely
+                                try {{
+                                    if (node.src && (
+                                        node.src.includes('cloudflare.com') || 
+                                        node.src.includes('turnstile')
+                                    )) {{
+                                        continue; 
+                                    }}
+                                }} catch(e) {{ continue; }}
+
+                                // Inject Chrome object into same-origin frames
+                                try {{
+                                    if (node.contentWindow && !node.contentWindow.chrome) {{
+                                        node.contentWindow.chrome = window.chrome;
+                                    }}
+                                    
+                                    // Also catch late loaders
+                                    node.addEventListener('load', () => {{
+                                        try {{
+                                            if (node.src && (
+                                                node.src.includes('cloudflare.com') || 
+                                                node.src.includes('turnstile')
+                                            )) return;
+                                            
+                                            if (node.contentWindow && !node.contentWindow.chrome) {{
+                                                node.contentWindow.chrome = window.chrome;
+                                            }}
+                                        }} catch(e) {{}}
+                                    }});
+                                }} catch(e) {{}}
+                            }}
+                        }}
                     }}
-                    return element;
-                }}, 'createElement');
+                }});
+                
+                // Start observing (passive, doesn't modify native APIs)
+                iframeObserver.observe(document.documentElement, {{
+                    childList: true,
+                    subtree: true
+                }});
 
             }})();
         "#,
