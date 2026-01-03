@@ -242,6 +242,9 @@ impl ChaserPage {
             .await
             .map_err(|e| anyhow!("{}", e))?;
 
+        // 4. Install main world bridge for evaluate_main() support
+        self.install_main_world_bridge().await?;
+
         Ok(())
     }
 
@@ -417,6 +420,113 @@ impl ChaserPage {
             .await
             .map_err(|e| anyhow!("{}", e))?;
         Ok(res.result.result.value)
+    }
+
+    /// Execute JavaScript in the **main world** (not isolated).
+    ///
+    /// Use this when you need to access main context objects like:
+    /// - `window.grecaptcha` (reCAPTCHA)
+    /// - `window.turnstile` (Cloudflare Turnstile callbacks)
+    /// - Any other global objects set by page scripts
+    ///
+    /// **WARNING**: Code executed here CAN be detected by the page via MutationObserver
+    /// or other techniques. Use `evaluate()` (isolated world) for most operations.
+    ///
+    /// This uses the postMessage bridge pattern from rebrowser-patches.
+    ///
+    /// # Example
+    /// ```rust
+    /// // Access Turnstile token from main world
+    /// let token = chaser.evaluate_main("window.turnstileToken").await?;
+    ///
+    /// // Check if grecaptcha is ready
+    /// let ready = chaser.evaluate_main("typeof window.grecaptcha?.execute === 'function'").await?;
+    /// ```
+    pub async fn evaluate_main(&self, script: &str) -> Result<Option<Value>> {
+        // Generate unique ID for this call
+        let call_id = uuid::Uuid::new_v4().to_string();
+        
+        // The bridge script sends message to main world and waits for response
+        let bridge_script = format!(r#"
+            new Promise((resolve, reject) => {{
+                const callId = '{call_id}';
+                
+                // Listen for response from main world
+                const handler = (event) => {{
+                    if (event.data && event.data._chaserCallId === callId && event.data._chaserFromMain) {{
+                        window.removeEventListener('message', handler);
+                        if (event.data._chaserError) {{
+                            reject(new Error(event.data._chaserError));
+                        }} else {{
+                            resolve(event.data._chaserResult);
+                        }}
+                    }}
+                }};
+                window.addEventListener('message', handler);
+                
+                // Send request to main world
+                window.postMessage({{
+                    _chaserCallId: callId,
+                    _chaserScript: {script_json}
+                }}, '*');
+                
+                // Timeout after 10 seconds
+                setTimeout(() => {{
+                    window.removeEventListener('message', handler);
+                    reject(new Error('Main world evaluation timeout'));
+                }}, 10000);
+            }})
+        "#, 
+            call_id = call_id,
+            script_json = serde_json::to_string(script).unwrap_or_else(|_| "\"\"".to_string())
+        );
+
+        self.evaluate_stealth(&bridge_script).await
+    }
+
+    /// Install the main world bridge.
+    /// 
+    /// This is automatically called by `apply_profile()`, but you can call it
+    /// manually if you need main world access without a full profile.
+    ///
+    /// The bridge listens for postMessage from isolated world and executes
+    /// code in the main world, sending results back.
+    pub async fn install_main_world_bridge(&self) -> Result<()> {
+        let bridge_script = r#"
+            // Chaser main world bridge - receives messages from isolated world
+            window.addEventListener('message', (event) => {
+                if (!event.data || !event.data._chaserCallId || event.data._chaserFromMain) {
+                    return; // Ignore irrelevant messages or our own responses
+                }
+                
+                const response = {
+                    _chaserCallId: event.data._chaserCallId,
+                    _chaserFromMain: true
+                };
+                
+                try {
+                    // Execute the script in main world
+                    response._chaserResult = eval(event.data._chaserScript);
+                } catch (err) {
+                    response._chaserError = err.message || String(err);
+                }
+                
+                // Send response back (will be received by isolated world)
+                window.postMessage(JSON.parse(JSON.stringify(response)), '*');
+            });
+        "#;
+
+        self.page
+            .execute(AddScriptToEvaluateOnNewDocumentParams {
+                source: bridge_script.to_string(),
+                world_name: None,
+                include_command_line_api: None,
+                run_immediately: None,
+            })
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
+        Ok(())
     }
 
     /// Moves the mouse to the target coordinates using a human-like Bezier curve path.
