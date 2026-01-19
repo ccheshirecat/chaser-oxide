@@ -244,7 +244,9 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
             let v = version
                 .as_mut()
                 .ok_or_else(|| format_err!("line {}: version must be declared first", line_num))?;
-            v.major = caps.get(1).unwrap().as_str().parse().unwrap();
+            v.major = caps.get(1).unwrap().as_str().parse().map_err(|_| {
+                format_err!("line {}: major version number is invalid or too large", line_num)
+            })?;
             continue;
         }
 
@@ -252,7 +254,9 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
             let v = version
                 .as_mut()
                 .ok_or_else(|| format_err!("line {}: missing version declaration", line_num))?;
-            v.minor = caps.get(1).unwrap().as_str().parse().unwrap();
+            v.minor = caps.get(1).unwrap().as_str().parse().map_err(|_| {
+                format_err!("line {}: minor version number is invalid or too large", line_num)
+            })?;
             continue;
         }
 
@@ -446,5 +450,21 @@ experimental domain DummyDomain
 "#;
 
         parse_pdl(s).unwrap();
+    }
+
+    #[test]
+    fn parse_major_version_overflow_returns_error() {
+        let payload = "version\n  major 999999999999999999999999999999\n  minor 0";
+        let result = parse_pdl(payload);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("major version"));
+    }
+
+    #[test]
+    fn parse_minor_version_overflow_returns_error() {
+        let payload = "version\n  major 1\n  minor 999999999999999999999999999999";
+        let result = parse_pdl(payload);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("minor version"));
     }
 }
