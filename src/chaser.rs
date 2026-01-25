@@ -338,8 +338,8 @@ impl ChaserPage {
         let end = Point { x, y };
 
         // Target Selection Jitter: don't land exactly on the pixel
-        let jitter_x = rng.gen_range(-2.0..2.0);
-        let jitter_y = rng.gen_range(-2.0..2.0);
+        let jitter_x = rng.random_range(-2.0..2.0);
+        let jitter_y = rng.random_range(-2.0..2.0);
         let target_with_jitter = Point {
             x: end.x + jitter_x,
             y: end.y + jitter_y,
@@ -357,7 +357,7 @@ impl ChaserPage {
                 .map_err(|e| anyhow!("{}", e))?;
             *self.mouse_pos.lock().unwrap() = point;
             // Tiny delay to simulate physical movement
-            tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(5..15))).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(5..15))).await;
         }
 
         Ok(())
@@ -384,13 +384,13 @@ impl ChaserPage {
         self.move_mouse_human(x, y, rng).await?;
 
         // Small pause before clicking (humans don't click instantly after arriving)
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(50..150))).await;
 
         // Click
         self.click().await?;
 
         // Small pause after clicking
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(30..80))).await;
 
         Ok(())
     }
@@ -443,11 +443,11 @@ impl ChaserPage {
                 .map_err(|e| anyhow!("{}", e))?;
 
             // Random delay between keystrokes
-            let delay = rng.gen_range(min_delay_ms..max_delay_ms);
+            let delay = rng.random_range(min_delay_ms..max_delay_ms);
 
             // 5% chance of a longer "thinking" pause
-            let actual_delay = if rng.gen_bool(0.05) {
-                rng.gen_range(200..400)
+            let actual_delay = if rng.random_bool(0.05) {
+                rng.random_range(200..400)
             } else {
                 delay
             };
@@ -503,13 +503,13 @@ impl ChaserPage {
 
     /// Press Enter key with a small random delay before pressing.
     pub async fn press_enter(&self, rng: &mut impl Rng) -> Result<()> {
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300))).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(100..300))).await;
         self.press_key("Enter").await
     }
 
     /// Press Tab key to move to next field.
     pub async fn press_tab(&self, rng: &mut impl Rng) -> Result<()> {
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(50..150))).await;
         self.press_key("Tab").await
     }
 
@@ -545,7 +545,7 @@ impl ChaserPage {
             };
 
             let base_step = remaining / (steps - i) as i32;
-            let jitter = rng.gen_range(-10..10);
+            let jitter = rng.random_range(-10..10);
             let step = ((base_step as f64 * ease) as i32 + jitter).clamp(-200, 200);
 
             if step == 0 {
@@ -569,7 +569,7 @@ impl ChaserPage {
             remaining -= step;
 
             // Variable delay between scroll events (16-50ms for 60-20 FPS feel)
-            tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(16..50))).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(16..50))).await;
         }
 
         Ok(())
@@ -584,27 +584,27 @@ impl ChaserPage {
 
         for c in text.chars() {
             // 3% chance of typo
-            if rng.gen_bool(0.03) && c.is_alphabetic() {
+            if rng.random_bool(0.03) && c.is_alphabetic() {
                 // Type wrong character
-                let typo = typo_chars[rng.gen_range(0..typo_chars.len())];
+                let typo = typo_chars[rng.random_range(0..typo_chars.len())];
                 self.type_single_char(typo).await?;
 
                 // Brief pause to "notice" the mistake
-                tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300)))
+                tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(100..300)))
                     .await;
 
                 // Backspace to correct
                 self.press_key("Backspace").await?;
-                tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(30..80))).await;
             }
 
             // Type the correct character
             self.type_single_char(c).await?;
 
             // Random delay
-            let delay = rng.gen_range(50..150);
-            let actual_delay = if rng.gen_bool(0.05) {
-                rng.gen_range(200..400) // thinking pause
+            let delay = rng.random_range(50..150);
+            let actual_delay = if rng.random_bool(0.05) {
+                rng.random_range(200..400) // thinking pause
             } else {
                 delay
             };
@@ -656,18 +656,18 @@ impl BezierPath {
 
         // First control point (25% along the path with random offset)
         let p1 = Point {
-            x: start.x + (end.x - start.x) * 0.25 + rng.gen_range(-offset_range..offset_range),
-            y: start.y + (end.y - start.y) * 0.25 + rng.gen_range(-offset_range..offset_range),
+            x: start.x + (end.x - start.x) * 0.25 + rng.random_range(-offset_range..offset_range),
+            y: start.y + (end.y - start.y) * 0.25 + rng.random_range(-offset_range..offset_range),
         };
 
         // Second control point (75% along the path with random offset)
         // 20% chance of overshoot
         let mut p2 = Point {
-            x: start.x + (end.x - start.x) * 0.75 + rng.gen_range(-offset_range..offset_range),
-            y: start.y + (end.y - start.y) * 0.75 + rng.gen_range(-offset_range..offset_range),
+            x: start.x + (end.x - start.x) * 0.75 + rng.random_range(-offset_range..offset_range),
+            y: start.y + (end.y - start.y) * 0.75 + rng.random_range(-offset_range..offset_range),
         };
 
-        if rng.gen_bool(0.20) {
+        if rng.random_bool(0.20) {
             let overshoot_amt = dist * 0.05;
             p2.x += if end.x > start.x {
                 overshoot_amt
