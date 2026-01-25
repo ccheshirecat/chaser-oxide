@@ -37,10 +37,11 @@ async fn main() -> Result<()> {
 
     // Upgrade to ChaserPage
     let chaser = ChaserPage::new(page);
+    let mut rng = rand::thread_rng();
 
     // Human-like mouse movement
     println!("Simulating human mouse movement...");
-    chaser.move_mouse_human(500.0, 300.0).await?;
+    chaser.move_mouse_human(500.0, 300.0, &mut rng).await?;
 
     // Test stealth execution
     println!("\nReading values from the PAGE (main world sees spoofed values):");
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     chaser
-        .inner()
+        .raw_page()
         .save_screenshot(
             chaser_oxide::page::ScreenshotParams::builder().build(),
             "stealth_test.png",

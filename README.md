@@ -42,6 +42,7 @@ futures = "0.3"
 ```rust
 use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile};
 use futures::StreamExt;
+use rand::Rng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -60,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
     // 3. Create page and wrap in ChaserPage
     let page = browser.new_page("about:blank").await?;
     let chaser = ChaserPage::new(page);
+    let mut rng = rand::thread_rng();
 
     // 4. Apply profile (sets UA + injects stealth scripts) - BEFORE navigation
     chaser.apply_profile(&profile).await?;
@@ -71,9 +73,9 @@ async fn main() -> anyhow::Result<()> {
     let title: Option<String> = chaser.evaluate("document.title").await?;
 
     // 7. Use human-like interaction methods
-    chaser.move_mouse_human(400.0, 300.0).await?;
-    chaser.click_human(500.0, 400.0).await?;
-    chaser.type_text("Search query").await?;
+    chaser.move_mouse_human(400.0, 300.0, &mut rng).await?;
+    chaser.click_human(500.0, 400.0, &mut rng).await?;
+    chaser.type_text("Search query", &mut rng).await?;
 
     Ok(())
 }
@@ -137,13 +139,13 @@ impl ChaserPage {
     async fn evaluate(&self, script: &str) -> Result<Option<Value>>;  // Stealth!
     
     // Human-like Mouse Movement (Bezier curves)
-    async fn move_mouse_human(&self, x: f64, y: f64) -> Result<()>;
-    async fn click_human(&self, x: f64, y: f64) -> Result<()>;
-    async fn scroll_human(&self, delta_y: i32) -> Result<()>;
+    async fn move_mouse_human(&self, x: f64, y: f64, rng: &mut impl Rng) -> Result<()>;
+    async fn click_human(&self, x: f64, y: f64, rng: &mut impl Rng) -> Result<()>;
+    async fn scroll_human(&self, delta_y: i32, rng: &mut impl Rng) -> Result<()>;
     
     // Human-like Typing
-    async fn type_text(&self, text: &str) -> Result<()>;
-    async fn type_text_with_typos(&self, text: &str) -> Result<()>;
+    async fn type_text(&self, text: &str, rng: &mut impl Rng) -> Result<()>;
+    async fn type_text_with_typos(&self, text: &str, rng: &mut impl Rng) -> Result<()>;
     
     // Request Interception
     async fn enable_request_interception(&self, pattern: &str, resource_type: Option<ResourceType>) -> Result<()>;

@@ -68,14 +68,15 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let chaser = ChaserPage::new(page);
+    let mut rng = rand::thread_rng();
 
     // Demonstrate click_human (combines bezier + click)
     println!("\nTesting click_human()...");
-    chaser.click_human(400.0, 300.0).await?;
+    chaser.click_human(400.0, 300.0, &mut rng).await?;
 
     // Demonstrate type_text_with_typos
     println!("Testing type_text_with_typos()...");
-    // chaser.type_text_with_typos("Hello world").await?;
+    // chaser.type_text_with_typos("Hello world", &mut rng).await?;
 
     tokio::time::sleep(Duration::from_secs(3)).await;
 

@@ -333,11 +333,9 @@ impl ChaserPage {
     /// - 20% chance of slight overshoot
     /// - Target jitter (±2px)
     /// - Variable delays between movements (5-15ms)
-    pub async fn move_mouse_human(&self, x: f64, y: f64) -> Result<()> {
+    pub async fn move_mouse_human(&self, x: f64, y: f64, rng: &mut impl Rng) -> Result<()> {
         let start = { *self.mouse_pos.lock().unwrap() };
         let end = Point { x, y };
-
-        let mut rng = rand::thread_rng();
 
         // Target Selection Jitter: don't land exactly on the pixel
         let jitter_x = rng.gen_range(-2.0..2.0);
@@ -347,7 +345,7 @@ impl ChaserPage {
             y: end.y + jitter_y,
         };
 
-        let path = BezierPath::generate(start, target_with_jitter, 25);
+        let path = BezierPath::generate(start, target_with_jitter, 25, rng);
 
         for point in path {
             self.page
@@ -381,11 +379,9 @@ impl ChaserPage {
     /// - Human-like path to target
     /// - Small random delay before clicking (50-150ms)
     /// - Variable click duration
-    pub async fn click_human(&self, x: f64, y: f64) -> Result<()> {
-        let mut rng = rand::thread_rng();
-
+    pub async fn click_human(&self, x: f64, y: f64, rng: &mut impl Rng) -> Result<()> {
         // Move to target with bezier curve
-        self.move_mouse_human(x, y).await?;
+        self.move_mouse_human(x, y, rng).await?;
 
         // Small pause before clicking (humans don't click instantly after arriving)
         tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
@@ -404,8 +400,8 @@ impl ChaserPage {
     /// Simulates realistic typing with:
     /// - Variable delay between keys (50-150ms by default)
     /// - Occasional longer pauses (5% chance of 200-400ms pause)
-    pub async fn type_text(&self, text: &str) -> Result<()> {
-        self.type_text_with_delay(text, 50, 150).await
+    pub async fn type_text(&self, text: &str, rng: &mut impl Rng) -> Result<()> {
+        self.type_text_with_delay(text, 50, 150, rng).await
     }
 
     /// Type text with custom delay range (in milliseconds).
@@ -419,8 +415,8 @@ impl ChaserPage {
         text: &str,
         min_delay_ms: u64,
         max_delay_ms: u64,
+        rng: &mut impl Rng,
     ) -> Result<()> {
-        let mut rng = rand::thread_rng();
 
         for c in text.chars() {
             // Send keyDown with the character
@@ -506,15 +502,13 @@ impl ChaserPage {
     }
 
     /// Press Enter key with a small random delay before pressing.
-    pub async fn press_enter(&self) -> Result<()> {
-        let mut rng = rand::thread_rng();
+    pub async fn press_enter(&self, rng: &mut impl Rng) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300))).await;
         self.press_key("Enter").await
     }
 
     /// Press Tab key to move to next field.
-    pub async fn press_tab(&self) -> Result<()> {
-        let mut rng = rand::thread_rng();
+    pub async fn press_tab(&self, rng: &mut impl Rng) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
         self.press_key("Tab").await
     }
@@ -528,12 +522,11 @@ impl ChaserPage {
     ///
     /// # Arguments
     /// * `delta_y` - Total pixels to scroll (positive = down, negative = up)
-    pub async fn scroll_human(&self, delta_y: i32) -> Result<()> {
+    pub async fn scroll_human(&self, delta_y: i32, rng: &mut impl Rng) -> Result<()> {
         use chromiumoxide_cdp::cdp::browser_protocol::input::{
             DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
         };
 
-        let mut rng = rand::thread_rng();
         let pos = { *self.mouse_pos.lock().unwrap() };
 
         // Number of scroll steps (more steps = smoother)
@@ -586,8 +579,7 @@ impl ChaserPage {
     ///
     /// This method has a small chance (~3%) of making a typo and then correcting it,
     /// mimicking how real humans type.
-    pub async fn type_text_with_typos(&self, text: &str) -> Result<()> {
-        let mut rng = rand::thread_rng();
+    pub async fn type_text_with_typos(&self, text: &str, rng: &mut impl Rng) -> Result<()> {
         let typo_chars = ['q', 'w', 'e', 'r', 't', 'a', 's', 'd', 'f', 'g'];
 
         for c in text.chars() {
@@ -655,8 +647,7 @@ impl BezierPath {
     /// Generates a path of points from start to end using a cubic Bezier curve.
     ///
     /// The curve includes randomized control points to create natural, human-like arcs.
-    pub fn generate(start: Point, end: Point, steps: usize) -> Vec<Point> {
-        let mut rng = rand::thread_rng();
+    pub fn generate(start: Point, end: Point, steps: usize, rng: &mut impl Rng) -> Vec<Point> {
         let mut path = Vec::with_capacity(steps);
 
         // Calculate distance for offset scaling
