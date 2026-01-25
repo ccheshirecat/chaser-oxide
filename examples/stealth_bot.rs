@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
 
     // Upgrade to ChaserPage
     let chaser = ChaserPage::new(page);
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Human-like mouse movement
     println!("Simulating human mouse movement...");

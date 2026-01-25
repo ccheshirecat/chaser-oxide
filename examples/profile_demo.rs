@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let chaser = ChaserPage::new(page);
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Demonstrate click_human (combines bezier + click)
     println!("\nTesting click_human()...");
