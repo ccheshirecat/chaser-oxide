@@ -1,14 +1,13 @@
 use std::time::Duration;
 
-use chromiumoxide::browser::BrowserConfigBuilder;
-use chromiumoxide::Browser;
+use chaser_oxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
     let (browser, mut handler) = Browser::launch(
-        BrowserConfigBuilder::default()
+        BrowserConfig::builder()
             .request_timeout(Duration::from_secs(5))
             .build()
             .unwrap(),

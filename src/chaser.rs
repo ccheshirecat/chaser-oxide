@@ -333,21 +333,19 @@ impl ChaserPage {
     /// - 20% chance of slight overshoot
     /// - Target jitter (±2px)
     /// - Variable delays between movements (5-15ms)
-    pub async fn move_mouse_human(&self, x: f64, y: f64) -> Result<()> {
+    pub async fn move_mouse_human(&self, x: f64, y: f64, rng: &mut impl Rng) -> Result<()> {
         let start = { *self.mouse_pos.lock().unwrap() };
         let end = Point { x, y };
 
-        let mut rng = rand::thread_rng();
-
         // Target Selection Jitter: don't land exactly on the pixel
-        let jitter_x = rng.gen_range(-2.0..2.0);
-        let jitter_y = rng.gen_range(-2.0..2.0);
+        let jitter_x = rng.random_range(-2.0..2.0);
+        let jitter_y = rng.random_range(-2.0..2.0);
         let target_with_jitter = Point {
             x: end.x + jitter_x,
             y: end.y + jitter_y,
         };
 
-        let path = BezierPath::generate(start, target_with_jitter, 25);
+        let path = BezierPath::generate(start, target_with_jitter, 25, rng);
 
         for point in path {
             self.page
@@ -359,7 +357,7 @@ impl ChaserPage {
                 .map_err(|e| anyhow!("{}", e))?;
             *self.mouse_pos.lock().unwrap() = point;
             // Tiny delay to simulate physical movement
-            tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(5..15))).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(5..15))).await;
         }
 
         Ok(())
@@ -381,20 +379,18 @@ impl ChaserPage {
     /// - Human-like path to target
     /// - Small random delay before clicking (50-150ms)
     /// - Variable click duration
-    pub async fn click_human(&self, x: f64, y: f64) -> Result<()> {
-        let mut rng = rand::thread_rng();
-
+    pub async fn click_human(&self, x: f64, y: f64, rng: &mut impl Rng) -> Result<()> {
         // Move to target with bezier curve
-        self.move_mouse_human(x, y).await?;
+        self.move_mouse_human(x, y, rng).await?;
 
         // Small pause before clicking (humans don't click instantly after arriving)
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(50..150))).await;
 
         // Click
         self.click().await?;
 
         // Small pause after clicking
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(30..80))).await;
 
         Ok(())
     }
@@ -404,8 +400,8 @@ impl ChaserPage {
     /// Simulates realistic typing with:
     /// - Variable delay between keys (50-150ms by default)
     /// - Occasional longer pauses (5% chance of 200-400ms pause)
-    pub async fn type_text(&self, text: &str) -> Result<()> {
-        self.type_text_with_delay(text, 50, 150).await
+    pub async fn type_text(&self, text: &str, rng: &mut impl Rng) -> Result<()> {
+        self.type_text_with_delay(text, 50, 150, rng).await
     }
 
     /// Type text with custom delay range (in milliseconds).
@@ -419,8 +415,8 @@ impl ChaserPage {
         text: &str,
         min_delay_ms: u64,
         max_delay_ms: u64,
+        rng: &mut impl Rng,
     ) -> Result<()> {
-        let mut rng = rand::thread_rng();
 
         for c in text.chars() {
             // Send keyDown with the character
@@ -447,11 +443,11 @@ impl ChaserPage {
                 .map_err(|e| anyhow!("{}", e))?;
 
             // Random delay between keystrokes
-            let delay = rng.gen_range(min_delay_ms..max_delay_ms);
+            let delay = rng.random_range(min_delay_ms..max_delay_ms);
 
             // 5% chance of a longer "thinking" pause
-            let actual_delay = if rng.gen_bool(0.05) {
-                rng.gen_range(200..400)
+            let actual_delay = if rng.random_bool(0.05) {
+                rng.random_range(200..400)
             } else {
                 delay
             };
@@ -506,16 +502,14 @@ impl ChaserPage {
     }
 
     /// Press Enter key with a small random delay before pressing.
-    pub async fn press_enter(&self) -> Result<()> {
-        let mut rng = rand::thread_rng();
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300))).await;
+    pub async fn press_enter(&self, rng: &mut impl Rng) -> Result<()> {
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(100..300))).await;
         self.press_key("Enter").await
     }
 
     /// Press Tab key to move to next field.
-    pub async fn press_tab(&self) -> Result<()> {
-        let mut rng = rand::thread_rng();
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
+    pub async fn press_tab(&self, rng: &mut impl Rng) -> Result<()> {
+        tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(50..150))).await;
         self.press_key("Tab").await
     }
 
@@ -528,12 +522,11 @@ impl ChaserPage {
     ///
     /// # Arguments
     /// * `delta_y` - Total pixels to scroll (positive = down, negative = up)
-    pub async fn scroll_human(&self, delta_y: i32) -> Result<()> {
+    pub async fn scroll_human(&self, delta_y: i32, rng: &mut impl Rng) -> Result<()> {
         use chromiumoxide_cdp::cdp::browser_protocol::input::{
             DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
         };
 
-        let mut rng = rand::thread_rng();
         let pos = { *self.mouse_pos.lock().unwrap() };
 
         // Number of scroll steps (more steps = smoother)
@@ -552,7 +545,7 @@ impl ChaserPage {
             };
 
             let base_step = remaining / (steps - i) as i32;
-            let jitter = rng.gen_range(-10..10);
+            let jitter = rng.random_range(-10..10);
             let step = ((base_step as f64 * ease) as i32 + jitter).clamp(-200, 200);
 
             if step == 0 {
@@ -576,7 +569,7 @@ impl ChaserPage {
             remaining -= step;
 
             // Variable delay between scroll events (16-50ms for 60-20 FPS feel)
-            tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(16..50))).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(16..50))).await;
         }
 
         Ok(())
@@ -586,33 +579,32 @@ impl ChaserPage {
     ///
     /// This method has a small chance (~3%) of making a typo and then correcting it,
     /// mimicking how real humans type.
-    pub async fn type_text_with_typos(&self, text: &str) -> Result<()> {
-        let mut rng = rand::thread_rng();
+    pub async fn type_text_with_typos(&self, text: &str, rng: &mut impl Rng) -> Result<()> {
         let typo_chars = ['q', 'w', 'e', 'r', 't', 'a', 's', 'd', 'f', 'g'];
 
         for c in text.chars() {
             // 3% chance of typo
-            if rng.gen_bool(0.03) && c.is_alphabetic() {
+            if rng.random_bool(0.03) && c.is_alphabetic() {
                 // Type wrong character
-                let typo = typo_chars[rng.gen_range(0..typo_chars.len())];
+                let typo = typo_chars[rng.random_range(0..typo_chars.len())];
                 self.type_single_char(typo).await?;
 
                 // Brief pause to "notice" the mistake
-                tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300)))
+                tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(100..300)))
                     .await;
 
                 // Backspace to correct
                 self.press_key("Backspace").await?;
-                tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(rng.random_range(30..80))).await;
             }
 
             // Type the correct character
             self.type_single_char(c).await?;
 
             // Random delay
-            let delay = rng.gen_range(50..150);
-            let actual_delay = if rng.gen_bool(0.05) {
-                rng.gen_range(200..400) // thinking pause
+            let delay = rng.random_range(50..150);
+            let actual_delay = if rng.random_bool(0.05) {
+                rng.random_range(200..400) // thinking pause
             } else {
                 delay
             };
@@ -655,8 +647,7 @@ impl BezierPath {
     /// Generates a path of points from start to end using a cubic Bezier curve.
     ///
     /// The curve includes randomized control points to create natural, human-like arcs.
-    pub fn generate(start: Point, end: Point, steps: usize) -> Vec<Point> {
-        let mut rng = rand::thread_rng();
+    pub fn generate(start: Point, end: Point, steps: usize, rng: &mut impl Rng) -> Vec<Point> {
         let mut path = Vec::with_capacity(steps);
 
         // Calculate distance for offset scaling
@@ -665,18 +656,18 @@ impl BezierPath {
 
         // First control point (25% along the path with random offset)
         let p1 = Point {
-            x: start.x + (end.x - start.x) * 0.25 + rng.gen_range(-offset_range..offset_range),
-            y: start.y + (end.y - start.y) * 0.25 + rng.gen_range(-offset_range..offset_range),
+            x: start.x + (end.x - start.x) * 0.25 + rng.random_range(-offset_range..offset_range),
+            y: start.y + (end.y - start.y) * 0.25 + rng.random_range(-offset_range..offset_range),
         };
 
         // Second control point (75% along the path with random offset)
         // 20% chance of overshoot
         let mut p2 = Point {
-            x: start.x + (end.x - start.x) * 0.75 + rng.gen_range(-offset_range..offset_range),
-            y: start.y + (end.y - start.y) * 0.75 + rng.gen_range(-offset_range..offset_range),
+            x: start.x + (end.x - start.x) * 0.75 + rng.random_range(-offset_range..offset_range),
+            y: start.y + (end.y - start.y) * 0.75 + rng.random_range(-offset_range..offset_range),
         };
 
-        if rng.gen_bool(0.20) {
+        if rng.random_bool(0.20) {
             let overshoot_amt = dist * 0.05;
             p2.x += if end.x > start.x {
                 overshoot_amt

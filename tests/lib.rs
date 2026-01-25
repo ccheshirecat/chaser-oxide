@@ -1,6 +1,6 @@
 use std::panic;
 
-use chromiumoxide::{Browser, BrowserConfig};
+use chaser_oxide::{Browser, BrowserConfig};
 use futures::{FutureExt, StreamExt};
 
 mod basic;

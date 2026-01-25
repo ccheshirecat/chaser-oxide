@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
+use chaser_oxide::{Browser, BrowserConfig, BrowserFetcher, BrowserFetcherOptions};
 use futures::StreamExt;
 
 #[tokio::main]
