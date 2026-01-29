@@ -1,5 +1,5 @@
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::page::ScreenshotParams;
+use chaser_oxide::browser::{Browser, BrowserConfig};
+use chaser_oxide::page::ScreenshotParams;
 use chromiumoxide_cdp::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use futures::StreamExt;
 

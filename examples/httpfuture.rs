@@ -1,5 +1,5 @@
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::cdp::browser_protocol::page::NavigateParams;
+use chaser_oxide::browser::{Browser, BrowserConfig};
+use chaser_oxide::cdp::browser_protocol::page::NavigateParams;
 use futures::StreamExt;
 use futures::TryFutureExt;
 

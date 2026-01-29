@@ -2,7 +2,7 @@
 // a problem with the iframe workaround is that it will always fail to load the page
 // and goto will cause a timeout.
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
+use chaser_oxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
 
 #[tokio::main]

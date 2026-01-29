@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     chaser
-        .inner()
+        .raw_page()
         .save_screenshot(
             chaser_oxide::page::ScreenshotParams::builder().build(),
             "stealth_test.png",

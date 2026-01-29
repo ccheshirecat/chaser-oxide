@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
+use chaser_oxide::browser::{Browser, BrowserConfig};
 use chromiumoxide_cdp::cdp::js_protocol::runtime::{AddBindingParams, EventBindingCalled};
 use futures::StreamExt;
 use tokio::sync::Mutex;
