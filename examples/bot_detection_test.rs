@@ -148,18 +148,20 @@ async fn main() -> Result<()> {
         .await?;
     tokio::time::sleep(Duration::from_secs(4)).await;
     let result = chaser.raw_page().find_element("#resultsBotTest").await;
-    match result {
+    let is_bot = match result {
         Ok(element) => {
             let text = element
                 .inner_text()
                 .await?
                 .unwrap_or_else(|| "❓Unknown".to_string());
             println!("   Detection Result: {}", text.replace("\n", ""));
+            text.contains("bot")
         }
         Err(_) => {
             println!("   Detection Result: element not found.");
+            true
         }
-    }
+    };
 
     println!();
 
@@ -247,18 +249,20 @@ async fn main() -> Result<()> {
         "✓ No CDP markers: {}",
         if no_cdp_markers { "✅" } else { "❌" }
     );
+    println!("✓ No Bot detection: {}", if !is_bot { "✅" } else { "❌" });
 
     let score = [
         webdriver_clean,
         chrome_present,
         low_red_flags,
         no_cdp_markers,
+        is_bot,
     ]
     .iter()
     .filter(|&&x| x)
     .count();
 
-    println!("\nOverall Score: {}/4", score);
+    println!("\nOverall Score: {}/5", score);
 
     if score >= 3 {
         println!("🎉 HEADLESS STEALTH: EXCELLENT");
