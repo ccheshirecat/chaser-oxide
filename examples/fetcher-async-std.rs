@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
+use chaser_oxide::browser::{Browser, BrowserConfig};
+use chaser_oxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
 use futures::StreamExt;
 
 #[async_std::main]

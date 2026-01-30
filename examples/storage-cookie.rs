@@ -1,6 +1,6 @@
-use chromiumoxide::browser::Browser;
-use chromiumoxide::browser::BrowserConfig;
-use chromiumoxide::cdp::browser_protocol::network::CookieParam;
+use chaser_oxide::browser::Browser;
+use chaser_oxide::browser::BrowserConfig;
+use chaser_oxide::cdp::browser_protocol::network::CookieParam;
 use futures::StreamExt;
 
 #[tokio::main]
