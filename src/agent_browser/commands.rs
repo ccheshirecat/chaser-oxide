@@ -193,6 +193,21 @@ pub enum ElementState {
     Hidden,
 }
 
+/// Page load state for waiting.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoadState {
+    /// Wait for the load event.
+    #[default]
+    Load,
+    /// Wait for DOMContentLoaded.
+    #[serde(rename = "domcontentloaded")]
+    DomContentLoaded,
+    /// Wait until there are no network connections for 500ms.
+    #[serde(rename = "networkidle")]
+    NetworkIdle,
+}
+
 /// Storage type.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

@@ -77,6 +77,14 @@ impl ChaserPage {
         &self.page
     }
 
+    /// Consume the ChaserPage and return the underlying Page.
+    ///
+    /// This is useful when you need to take ownership of the Page,
+    /// for example to close it.
+    pub fn into_raw_page(self) -> Page {
+        self.page
+    }
+
     // ========== STEALTH-SAFE PAGE OPERATIONS ==========
 
     /// Navigate to a URL (stealth-safe).
