@@ -1637,6 +1637,660 @@ impl AgentPage {
     }
 
     // =========================================================================
+    // Browser Settings & Emulation (Phase 9)
+    // =========================================================================
+
+    /// Set the viewport size.
+    pub async fn set_viewport(&self, width: u32, height: u32) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+
+        let params = SetDeviceMetricsOverrideParams::builder()
+            .width(width as i64)
+            .height(height as i64)
+            .device_scale_factor(1.0)
+            .mobile(false)
+            .build()
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to build params: {}", e),
+            })?;
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set viewport: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Set the device emulation using a predefined device.
+    pub async fn set_device(&self, device_name: &str) -> AgentResult<()> {
+        use super::commands::devices;
+        use crate::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+
+        let device = devices::get_device(device_name).ok_or_else(|| AgentError::Internal {
+            message: format!("Unknown device: {}", device_name),
+        })?;
+
+        let params = SetDeviceMetricsOverrideParams::builder()
+            .width(device.viewport.width as i64)
+            .height(device.viewport.height as i64)
+            .device_scale_factor(device.device_scale_factor)
+            .mobile(device.is_mobile)
+            .build()
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to build params: {}", e),
+            })?;
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set device: {}", e),
+            })?;
+
+        // Set user agent if provided
+        if let Some(ua) = device.user_agent {
+            self.set_user_agent(&ua).await?;
+        }
+
+        Ok(())
+    }
+
+    /// List available device names.
+    pub fn list_devices(&self) -> Vec<&'static str> {
+        super::commands::devices::list_devices()
+    }
+
+    /// Set geolocation.
+    pub async fn set_geolocation(&self, latitude: f64, longitude: f64, accuracy: Option<f64>) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::emulation::SetGeolocationOverrideParams;
+
+        let mut params_builder = SetGeolocationOverrideParams::builder()
+            .latitude(latitude)
+            .longitude(longitude);
+
+        if let Some(acc) = accuracy {
+            params_builder = params_builder.accuracy(acc);
+        }
+
+        let params = params_builder.build();
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set geolocation: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Set offline mode.
+    pub async fn set_offline(&self, offline: bool) -> AgentResult<()> {
+        // Use JavaScript to simulate offline mode
+        let js = if offline {
+            "window.navigator.onLine = false; window.dispatchEvent(new Event('offline'));"
+        } else {
+            "window.navigator.onLine = true; window.dispatchEvent(new Event('online'));"
+        };
+
+        self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to set offline mode: {}", e),
+        })?;
+        Ok(())
+    }
+
+    /// Set extra HTTP headers for all requests.
+    pub async fn set_headers(&self, headers: std::collections::HashMap<String, String>) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::network::{SetExtraHttpHeadersParams, Headers};
+
+        // Convert HashMap to JSON object for Headers
+        let json_headers: serde_json::Map<String, serde_json::Value> = headers
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::Value::String(v)))
+            .collect();
+        let cdp_headers = Headers::new(serde_json::Value::Object(json_headers));
+        let params = SetExtraHttpHeadersParams::new(cdp_headers);
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set headers: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Set HTTP Basic Auth credentials.
+    pub async fn set_credentials(&self, username: &str, password: &str) -> AgentResult<()> {
+        // Use JavaScript to set authorization header for fetch requests
+        let credentials = format!("{}:{}", username, password);
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, credentials);
+
+        let js = format!(
+            r#"
+            window.__chaserAuthHeader = 'Basic {}';
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options = {{}}) {{
+                options.headers = options.headers || {{}};
+                options.headers['Authorization'] = window.__chaserAuthHeader;
+                return originalFetch.call(this, url, options);
+            }};
+            "#,
+            encoded
+        );
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to set credentials: {}", e),
+        })?;
+        Ok(())
+    }
+
+    /// Emulate media features (color scheme, reduced motion, etc.).
+    pub async fn emulate_media(
+        &self,
+        media_type: Option<&str>,
+        color_scheme: Option<&str>,
+        reduced_motion: Option<&str>,
+        forced_colors: Option<&str>,
+    ) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::emulation::{
+            SetEmulatedMediaParams, MediaFeature,
+        };
+
+        let mut features = Vec::new();
+
+        if let Some(scheme) = color_scheme {
+            features.push(MediaFeature::new("prefers-color-scheme".to_string(), scheme.to_string()));
+        }
+
+        if let Some(motion) = reduced_motion {
+            features.push(MediaFeature::new("prefers-reduced-motion".to_string(), motion.to_string()));
+        }
+
+        if let Some(colors) = forced_colors {
+            features.push(MediaFeature::new("forced-colors".to_string(), colors.to_string()));
+        }
+
+        let mut params_builder = SetEmulatedMediaParams::builder();
+
+        if let Some(media) = media_type {
+            params_builder = params_builder.media(media);
+        }
+
+        if !features.is_empty() {
+            params_builder = params_builder.features(features);
+        }
+
+        let params = params_builder.build();
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to emulate media: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Set the user agent string.
+    pub async fn set_user_agent(&self, user_agent: &str) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::emulation::SetUserAgentOverrideParams;
+
+        let params = SetUserAgentOverrideParams::builder()
+            .user_agent(user_agent)
+            .build()
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to build params: {}", e),
+            })?;
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set user agent: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Set timezone.
+    pub async fn set_timezone(&self, timezone_id: &str) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::emulation::SetTimezoneOverrideParams;
+
+        let params = SetTimezoneOverrideParams::new(timezone_id.to_string());
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set timezone: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Set locale.
+    pub async fn set_locale(&self, locale: &str) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::emulation::SetLocaleOverrideParams;
+
+        let params = SetLocaleOverrideParams::builder()
+            .locale(locale)
+            .build();
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set locale: {}", e),
+            })?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Cookies & Storage (Phase 10)
+    // =========================================================================
+
+    /// Get cookies.
+    pub async fn cookies_get(&self, urls: Option<Vec<&str>>) -> AgentResult<Vec<serde_json::Value>> {
+        use crate::cdp::browser_protocol::network::GetCookiesParams;
+
+        let params = if let Some(url_list) = urls {
+            GetCookiesParams::builder()
+                .urls(url_list.into_iter().map(String::from).collect::<Vec<_>>())
+                .build()
+        } else {
+            GetCookiesParams::builder().build()
+        };
+
+        let result = self
+            .chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get cookies: {}", e),
+            })?;
+
+        // Convert cookies to JSON values
+        let cookies: Vec<serde_json::Value> = result
+            .cookies
+            .clone()
+            .into_iter()
+            .map(|c| {
+                serde_json::json!({
+                    "name": c.name,
+                    "value": c.value,
+                    "domain": c.domain,
+                    "path": c.path,
+                    "expires": c.expires,
+                    "httpOnly": c.http_only,
+                    "secure": c.secure,
+                    "sameSite": format!("{:?}", c.same_site),
+                })
+            })
+            .collect();
+
+        Ok(cookies)
+    }
+
+    /// Set cookies.
+    pub async fn cookies_set(&self, cookies: Vec<super::commands::Cookie>) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::network::{CookieParam, SetCookiesParams};
+
+        let current_url = self.get_url().await.ok();
+
+        let mut cookie_params: Vec<CookieParam> = Vec::new();
+
+        for c in cookies {
+            let mut param = CookieParam::builder()
+                .name(c.name)
+                .value(c.value);
+
+            // Use provided domain or extract from current URL
+            if let Some(domain) = c.domain {
+                param = param.domain(domain);
+            } else if let Some(ref url) = current_url {
+                if let Ok(parsed) = url::Url::parse(url) {
+                    if let Some(host) = parsed.host_str() {
+                        param = param.domain(host.to_string());
+                    }
+                }
+            }
+
+            if let Some(path) = c.path {
+                param = param.path(path);
+            }
+
+            // Skip expires for now since TimeSinceEpoch conversion is complex
+
+            if c.http_only {
+                param = param.http_only(true);
+            }
+
+            if c.secure {
+                param = param.secure(true);
+            }
+
+            match param.build() {
+                Ok(p) => cookie_params.push(p),
+                Err(e) => {
+                    return Err(AgentError::Internal {
+                        message: format!("Failed to build cookie: {}", e),
+                    });
+                }
+            }
+        }
+
+        let params = SetCookiesParams::new(cookie_params);
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set cookies: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Clear all cookies.
+    pub async fn cookies_clear(&self) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::network::ClearBrowserCookiesParams;
+
+        let params = ClearBrowserCookiesParams::default();
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to clear cookies: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Get value from storage (localStorage or sessionStorage).
+    pub async fn storage_get(
+        &self,
+        key: Option<&str>,
+        storage_type: super::commands::StorageType,
+    ) -> AgentResult<serde_json::Value> {
+        let storage_name = storage_type.as_str();
+
+        let js = if let Some(k) = key {
+            format!(
+                r#"
+                const value = {}.getItem('{}');
+                return value !== null ? JSON.parse(value) : null;
+                "#,
+                storage_name,
+                k.replace('\'', "\\'")
+            )
+        } else {
+            format!(
+                r#"
+                const result = {{}};
+                for (let i = 0; i < {}.length; i++) {{
+                    const key = {}.key(i);
+                    result[key] = {}.getItem(key);
+                }}
+                return result;
+                "#,
+                storage_name, storage_name, storage_name
+            )
+        };
+
+        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
+            message: e.to_string(),
+        })?;
+
+        Ok(result.unwrap_or(serde_json::Value::Null))
+    }
+
+    /// Set value in storage (localStorage or sessionStorage).
+    pub async fn storage_set(
+        &self,
+        key: &str,
+        value: &str,
+        storage_type: super::commands::StorageType,
+    ) -> AgentResult<()> {
+        let storage_name = storage_type.as_str();
+
+        let js = format!(
+            r#"
+            {}.setItem('{}', '{}');
+            "#,
+            storage_name,
+            key.replace('\'', "\\'"),
+            value.replace('\'', "\\'")
+        );
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
+            message: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    /// Clear storage (localStorage or sessionStorage).
+    pub async fn storage_clear(&self, storage_type: Option<super::commands::StorageType>) -> AgentResult<()> {
+        if let Some(st) = storage_type {
+            let storage_name = st.as_str();
+            let js = format!("{}.clear();", storage_name);
+            self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
+        } else {
+            // Clear both
+            self.chaser
+                .evaluate("localStorage.clear(); sessionStorage.clear();")
+                .await
+                .map_err(|e| AgentError::JavaScript {
+                    message: e.to_string(),
+                })?;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
+    // JavaScript Execution (Phase 15)
+    // =========================================================================
+
+    /// Add a script to evaluate on every new document.
+    pub async fn add_init_script(&self, script: &str) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
+
+        let params = AddScriptToEvaluateOnNewDocumentParams::new(script.to_string());
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to add init script: {}", e),
+            })?;
+        Ok(())
+    }
+
+    /// Inject a script tag into the page.
+    pub async fn add_script(&self, content_or_url: &str) -> AgentResult<()> {
+        let js = if content_or_url.starts_with("http://") || content_or_url.starts_with("https://") {
+            format!(
+                r#"
+                const script = document.createElement('script');
+                script.src = '{}';
+                document.head.appendChild(script);
+                "#,
+                content_or_url.replace('\'', "\\'")
+            )
+        } else {
+            format!(
+                r#"
+                const script = document.createElement('script');
+                script.textContent = `{}`;
+                document.head.appendChild(script);
+                "#,
+                content_or_url.replace('`', "\\`")
+            )
+        };
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
+            message: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    /// Inject a style tag into the page.
+    pub async fn add_style(&self, content_or_url: &str) -> AgentResult<()> {
+        let js = if content_or_url.starts_with("http://") || content_or_url.starts_with("https://") {
+            format!(
+                r#"
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = '{}';
+                document.head.appendChild(link);
+                "#,
+                content_or_url.replace('\'', "\\'")
+            )
+        } else {
+            format!(
+                r#"
+                const style = document.createElement('style');
+                style.textContent = `{}`;
+                document.head.appendChild(style);
+                "#,
+                content_or_url.replace('`', "\\`")
+            )
+        };
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
+            message: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    /// Set the page content (HTML).
+    pub async fn set_content(&self, html: &str) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::page::SetDocumentContentParams;
+
+        // Get the frame ID
+        let frame_tree = self
+            .chaser
+            .raw_page()
+            .execute(crate::cdp::browser_protocol::page::GetFrameTreeParams::default())
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get frame tree: {}", e),
+            })?;
+
+        let frame_id = frame_tree.frame_tree.frame.id.clone();
+
+        let params = SetDocumentContentParams::new(frame_id, html.to_string());
+
+        self.chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set content: {}", e),
+            })?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Dialogs (Phase 14)
+    // =========================================================================
+
+    /// Set dialog handler (accept or dismiss dialogs automatically).
+    pub async fn dialog(&self, action: super::commands::DialogAction, prompt_text: Option<&str>) -> AgentResult<()> {
+        let accept = matches!(action, super::commands::DialogAction::Accept);
+        let text = prompt_text.map(|s| s.to_string());
+
+        // Use JavaScript to override dialog functions
+        let js = if accept {
+            if let Some(t) = text {
+                format!(
+                    r#"
+                    window.alert = () => {{}};
+                    window.confirm = () => true;
+                    window.prompt = () => '{}';
+                    "#,
+                    t.replace('\'', "\\'")
+                )
+            } else {
+                r#"
+                window.alert = () => {};
+                window.confirm = () => true;
+                window.prompt = (msg, defaultVal) => defaultVal || '';
+                "#
+                .to_string()
+            }
+        } else {
+            r#"
+            window.alert = () => {};
+            window.confirm = () => false;
+            window.prompt = () => null;
+            "#
+            .to_string()
+        };
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to set dialog handler: {}", e),
+        })?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // PDF (Phase 16)
+    // =========================================================================
+
+    /// Generate a PDF of the page.
+    pub async fn pdf(&self, path: Option<&str>, format: Option<super::commands::PdfFormat>) -> AgentResult<Vec<u8>> {
+        use crate::cdp::browser_protocol::page::PrintToPdfParams;
+
+        let mut params_builder = PrintToPdfParams::builder();
+
+        if let Some(fmt) = format {
+            let (width, height) = fmt.dimensions();
+            params_builder = params_builder
+                .paper_width(width)
+                .paper_height(height);
+        }
+
+        let params = params_builder.build();
+
+        let result = self
+            .chaser
+            .raw_page()
+            .execute(params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to generate PDF: {}", e),
+            })?;
+
+        // Decode base64 data
+        let data_bytes: &[u8] = result.data.as_ref();
+        let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_bytes)
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to decode PDF: {}", e),
+            })?;
+
+        if let Some(p) = path {
+            std::fs::write(p, &decoded).map_err(|e| AgentError::Internal {
+                message: format!("Failed to write PDF: {}", e),
+            })?;
+        }
+
+        Ok(decoded)
+    }
+
+    // =========================================================================
     // Internal Helpers
     // =========================================================================
 
