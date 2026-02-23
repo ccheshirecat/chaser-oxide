@@ -2291,6 +2291,293 @@ impl AgentPage {
     }
 
     // =========================================================================
+    // Network Interception (Phase 11)
+    // =========================================================================
+
+    /// Set up a route to intercept requests matching a URL pattern.
+    ///
+    /// The `response` parameter can be:
+    /// - `RouteResponse::Abort` to abort the request
+    /// - `RouteResponse::Fulfill { body, status, headers, content_type }` to mock the response
+    /// - `RouteResponse::Continue` to let the request proceed
+    pub async fn route(
+        &self,
+        url_pattern: &str,
+        response: super::commands::RouteResponse,
+    ) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::fetch::{
+            EnableParams, RequestPattern, RequestStage,
+        };
+
+        // Enable fetch interception
+        let pattern = RequestPattern::builder()
+            .url_pattern(url_pattern)
+            .request_stage(RequestStage::Request)
+            .build();
+
+        let enable_params = EnableParams::builder()
+            .patterns(vec![pattern])
+            .handle_auth_requests(false)
+            .build();
+
+        self.chaser
+            .raw_page()
+            .execute(enable_params)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to enable fetch interception: {}", e),
+            })?;
+
+        // Store the response configuration for when requests come in
+        // Note: Full implementation would require event listening
+        // For now, we use init script to intercept fetch/XHR
+        let js = match response {
+            super::commands::RouteResponse::Abort => {
+                format!(
+                    r#"
+                    window.__chaserRoutes = window.__chaserRoutes || {{}};
+                    window.__chaserRoutes['{}'] = {{ action: 'abort' }};
+                    "#,
+                    url_pattern.replace('\'', "\\'")
+                )
+            }
+            super::commands::RouteResponse::Fulfill { body, status, headers, content_type } => {
+                let body_json = serde_json::to_string(&body).unwrap_or_else(|_| "null".to_string());
+                let headers_json = serde_json::to_string(&headers).unwrap_or_else(|_| "{}".to_string());
+                let ct = content_type.unwrap_or_else(|| "text/plain".to_string());
+                format!(
+                    r#"
+                    window.__chaserRoutes = window.__chaserRoutes || {{}};
+                    window.__chaserRoutes['{}'] = {{
+                        action: 'fulfill',
+                        body: {},
+                        status: {},
+                        headers: {},
+                        contentType: '{}'
+                    }};
+                    "#,
+                    url_pattern.replace('\'', "\\'"),
+                    body_json,
+                    status,
+                    headers_json,
+                    ct.replace('\'', "\\'")
+                )
+            }
+            super::commands::RouteResponse::Continue => {
+                format!(
+                    r#"
+                    window.__chaserRoutes = window.__chaserRoutes || {{}};
+                    window.__chaserRoutes['{}'] = {{ action: 'continue' }};
+                    "#,
+                    url_pattern.replace('\'', "\\'")
+                )
+            }
+        };
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to set route: {}", e),
+        })?;
+
+        Ok(())
+    }
+
+    /// Remove a route.
+    pub async fn unroute(&self, url_pattern: Option<&str>) -> AgentResult<()> {
+        let js = if let Some(pattern) = url_pattern {
+            format!(
+                r#"
+                if (window.__chaserRoutes) {{
+                    delete window.__chaserRoutes['{}'];
+                }}
+                "#,
+                pattern.replace('\'', "\\'")
+            )
+        } else {
+            "window.__chaserRoutes = {};".to_string()
+        };
+
+        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to remove route: {}", e),
+        })?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Frames (Phase 13)
+    // =========================================================================
+
+    /// Switch to a frame by selector, name, or URL.
+    pub async fn frame(&self, selector_or_name_or_url: &str) -> AgentResult<()> {
+        // Try to find iframe by selector first
+        let js = format!(
+            r#"
+            (function() {{
+                // Try by selector
+                let iframe = document.querySelector('{}');
+                if (iframe && iframe.tagName === 'IFRAME') {{
+                    window.__chaserCurrentFrame = iframe.contentWindow;
+                    return true;
+                }}
+
+                // Try by name
+                const byName = document.querySelector('iframe[name="{}"]');
+                if (byName) {{
+                    window.__chaserCurrentFrame = byName.contentWindow;
+                    return true;
+                }}
+
+                // Try by URL (src attribute)
+                const iframes = document.querySelectorAll('iframe');
+                for (const f of iframes) {{
+                    if (f.src && f.src.includes('{}')) {{
+                        window.__chaserCurrentFrame = f.contentWindow;
+                        return true;
+                    }}
+                }}
+
+                return false;
+            }})()
+            "#,
+            selector_or_name_or_url.replace('\'', "\\'"),
+            selector_or_name_or_url.replace('"', "\\\""),
+            selector_or_name_or_url.replace('\'', "\\'")
+        );
+
+        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to find frame: {}", e),
+        })?;
+
+        if !result.and_then(|v| v.as_bool()).unwrap_or(false) {
+            return Err(AgentError::ElementNotFound {
+                selector: selector_or_name_or_url.to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Switch back to the main frame.
+    pub async fn main_frame(&self) -> AgentResult<()> {
+        self.chaser
+            .evaluate("window.__chaserCurrentFrame = null;")
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to switch to main frame: {}", e),
+            })?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Console & Error Tracking (Phase 18)
+    // =========================================================================
+
+    /// Get console messages (optionally clear after retrieval).
+    pub async fn console(&self, clear: bool) -> AgentResult<Vec<serde_json::Value>> {
+        let js = if clear {
+            r#"
+            (function() {
+                const messages = window.__chaserConsoleMessages || [];
+                window.__chaserConsoleMessages = [];
+                return messages;
+            })()
+            "#
+        } else {
+            "window.__chaserConsoleMessages || []"
+        };
+
+        let result = self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to get console messages: {}", e),
+        })?;
+
+        match result {
+            Some(serde_json::Value::Array(arr)) => Ok(arr),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    /// Get page errors (optionally clear after retrieval).
+    pub async fn errors(&self, clear: bool) -> AgentResult<Vec<serde_json::Value>> {
+        let js = if clear {
+            r#"
+            (function() {
+                const errors = window.__chaserPageErrors || [];
+                window.__chaserPageErrors = [];
+                return errors;
+            })()
+            "#
+        } else {
+            "window.__chaserPageErrors || []"
+        };
+
+        let result = self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to get page errors: {}", e),
+        })?;
+
+        match result {
+            Some(serde_json::Value::Array(arr)) => Ok(arr),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    /// Start tracking console messages.
+    pub async fn start_console_tracking(&self) -> AgentResult<()> {
+        let js = r#"
+        window.__chaserConsoleMessages = window.__chaserConsoleMessages || [];
+        const originalConsole = {
+            log: console.log.bind(console),
+            warn: console.warn.bind(console),
+            error: console.error.bind(console),
+            info: console.info.bind(console),
+            debug: console.debug.bind(console)
+        };
+        ['log', 'warn', 'error', 'info', 'debug'].forEach(level => {
+            console[level] = (...args) => {
+                window.__chaserConsoleMessages.push({
+                    level: level,
+                    text: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+                    timestamp: Date.now()
+                });
+                originalConsole[level](...args);
+            };
+        });
+        "#;
+
+        self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to start console tracking: {}", e),
+        })?;
+        Ok(())
+    }
+
+    /// Start tracking page errors.
+    pub async fn start_error_tracking(&self) -> AgentResult<()> {
+        let js = r#"
+        window.__chaserPageErrors = window.__chaserPageErrors || [];
+        window.addEventListener('error', (event) => {
+            window.__chaserPageErrors.push({
+                message: event.message,
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                stack: event.error?.stack,
+                timestamp: Date.now()
+            });
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+            window.__chaserPageErrors.push({
+                message: String(event.reason),
+                type: 'unhandledrejection',
+                timestamp: Date.now()
+            });
+        });
+        "#;
+
+        self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
+            message: format!("Failed to start error tracking: {}", e),
+        })?;
+        Ok(())
+    }
+
+    // =========================================================================
     // Internal Helpers
     // =========================================================================
 
