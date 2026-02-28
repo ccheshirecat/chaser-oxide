@@ -43,19 +43,31 @@ impl KeyModifiers {
     }
 
     pub fn ctrl() -> Self {
-        Self { ctrl: true, ..Default::default() }
+        Self {
+            ctrl: true,
+            ..Default::default()
+        }
     }
 
     pub fn alt() -> Self {
-        Self { alt: true, ..Default::default() }
+        Self {
+            alt: true,
+            ..Default::default()
+        }
     }
 
     pub fn shift() -> Self {
-        Self { shift: true, ..Default::default() }
+        Self {
+            shift: true,
+            ..Default::default()
+        }
     }
 
     pub fn meta() -> Self {
-        Self { meta: true, ..Default::default() }
+        Self {
+            meta: true,
+            ..Default::default()
+        }
     }
 
     /// Convert to CDP modifier flags.
@@ -693,7 +705,10 @@ pub mod devices {
             device_scale_factor: 1.0,
             is_mobile: false,
             has_touch: false,
-            user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0".to_string()),
+            user_agent: Some(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0"
+                    .to_string(),
+            ),
         }
     }
 

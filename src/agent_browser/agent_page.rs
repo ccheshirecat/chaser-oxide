@@ -8,14 +8,18 @@ use tokio::sync::Mutex;
 
 use crate::chaser::ChaserPage;
 
+use super::clipboard::{ClipboardAction, ClipboardResult};
 use super::commands::{
-    ClickOptions, ElementState, LoadState, MouseButton, ScreenshotFormat, ScreenshotOptions,
-    ScrollDirection, TypeOptions, WaitOptions,
+    ClickOptions, ElementState, LoadState, MouseButton, RawKeyboardInput, RawMouseInput,
+    RawTouchInput, ScreencastOptions, ScreenshotFormat, ScreenshotOptions, ScrollDirection,
+    TraceOptions, TypeOptions, WaitOptions,
 };
 use super::locator::Locator;
+use super::recording::{HarLog, HarRecorder, TraceRecorder};
 use super::refs::{RefInfo, RefMap};
 use super::response::*;
 use super::snapshot::{is_interactive_role, AccessibilityNode, Snapshot, SnapshotOptions};
+use super::streaming::ScreencastController;
 
 /// AgentPage provides an AI-agent friendly interface for browser automation.
 ///
@@ -31,13 +35,11 @@ pub struct AgentPage {
     /// The current snapshot's ref map.
     ref_map: Arc<Mutex<RefMap>>,
 
-    /// Console messages collected during the session.
-    /// TODO: Wire up console tracking in a future phase.
+    /// Console messages collected during the session (for CDP event wiring).
     #[allow(dead_code)]
     console_messages: Arc<Mutex<Vec<ConsoleMessage>>>,
 
-    /// Page errors collected during the session.
-    /// TODO: Wire up error tracking in a future phase.
+    /// Page errors collected during the session (for CDP event wiring).
     #[allow(dead_code)]
     page_errors: Arc<Mutex<Vec<PageError>>>,
 
@@ -48,6 +50,15 @@ pub struct AgentPage {
     /// Whether to track page errors.
     #[allow(dead_code)]
     track_errors: bool,
+
+    /// Trace recorder for debugging.
+    trace_recorder: Arc<Mutex<TraceRecorder>>,
+
+    /// HAR recorder for network capture.
+    har_recorder: Arc<Mutex<HarRecorder>>,
+
+    /// Screencast controller.
+    screencast: Arc<Mutex<ScreencastController>>,
 }
 
 impl AgentPage {
@@ -60,6 +71,9 @@ impl AgentPage {
             page_errors: Arc::new(Mutex::new(Vec::new())),
             track_console: true,
             track_errors: true,
+            trace_recorder: Arc::new(Mutex::new(TraceRecorder::new())),
+            har_recorder: Arc::new(Mutex::new(HarRecorder::new())),
+            screencast: Arc::new(Mutex::new(ScreencastController::new())),
         }
     }
 
@@ -79,9 +93,12 @@ impl AgentPage {
 
     /// Navigate to a URL.
     pub async fn navigate(&self, url: &str) -> AgentResult<NavigateData> {
-        self.chaser.goto(url).await.map_err(|e| AgentError::Navigation {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .goto(url)
+            .await
+            .map_err(|e| AgentError::Navigation {
+                message: e.to_string(),
+            })?;
 
         let current_url = self.get_url().await?;
         let title = self.get_title().await.ok();
@@ -302,9 +319,13 @@ impl AgentPage {
         })()
         "#;
 
-        let result = self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get accessibility tree: {}", e),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get accessibility tree: {}", e),
+            })?;
 
         let tree_json = result
             .and_then(|v| v.as_str().map(String::from))
@@ -313,9 +334,10 @@ impl AgentPage {
             })?;
 
         // Parse the JSON tree
-        let js_tree: serde_json::Value = serde_json::from_str(&tree_json).map_err(|e| AgentError::Internal {
-            message: format!("Failed to parse tree JSON: {}", e),
-        })?;
+        let js_tree: serde_json::Value =
+            serde_json::from_str(&tree_json).map_err(|e| AgentError::Internal {
+                message: format!("Failed to parse tree JSON: {}", e),
+            })?;
 
         // Convert to our AccessibilityNode structure
         let root = self.convert_js_tree(&js_tree, &options, 0)?;
@@ -401,7 +423,10 @@ impl AgentPage {
             for child in children {
                 if let Ok(child_node) = self.convert_js_tree(child, options, depth + 1) {
                     // Filter based on options
-                    if options.interactive_only && !child_node.interactive && child_node.children.is_empty() {
+                    if options.interactive_only
+                        && !child_node.interactive
+                        && child_node.children.is_empty()
+                    {
                         continue;
                     }
                     node.children.push(child_node);
@@ -434,11 +459,16 @@ impl AgentPage {
 
     /// Click an element by selector or ref.
     pub async fn click(&self, selector: &str) -> AgentResult<()> {
-        self.click_with_options(selector, ClickOptions::default()).await
+        self.click_with_options(selector, ClickOptions::default())
+            .await
     }
 
     /// Click an element with options.
-    pub async fn click_with_options(&self, selector: &str, options: ClickOptions) -> AgentResult<()> {
+    pub async fn click_with_options(
+        &self,
+        selector: &str,
+        options: ClickOptions,
+    ) -> AgentResult<()> {
         let element = self.find_element(selector).await?;
 
         if options.human_like {
@@ -447,11 +477,12 @@ impl AgentPage {
                 Ok(bbox) => {
                     let center_x = bbox.x + bbox.width / 2.0;
                     let center_y = bbox.y + bbox.height / 2.0;
-                    self.chaser.click_human(center_x, center_y).await.map_err(|e| {
-                        AgentError::Internal {
+                    self.chaser
+                        .click_human(center_x, center_y)
+                        .await
+                        .map_err(|e| AgentError::Internal {
                             message: format!("Human click failed: {}", e),
-                        }
-                    })?;
+                        })?;
                 }
                 Err(_) => {
                     element.click().await.map_err(|e| AgentError::Internal {
@@ -505,7 +536,8 @@ impl AgentPage {
 
     /// Type text into an element.
     pub async fn type_text(&self, selector: &str, text: &str) -> AgentResult<()> {
-        self.type_with_options(selector, text, TypeOptions::default()).await
+        self.type_with_options(selector, text, TypeOptions::default())
+            .await
     }
 
     /// Type text with options.
@@ -540,13 +572,19 @@ impl AgentPage {
                 message: format!("Focus failed: {}", e),
             })?;
             if options.with_typos {
-                self.chaser.type_text_with_typos(text).await.map_err(|e| AgentError::Internal {
-                    message: format!("Type failed: {}", e),
-                })?;
+                self.chaser
+                    .type_text_with_typos(text)
+                    .await
+                    .map_err(|e| AgentError::Internal {
+                        message: format!("Type failed: {}", e),
+                    })?;
             } else {
-                self.chaser.type_text(text).await.map_err(|e| AgentError::Internal {
-                    message: format!("Type failed: {}", e),
-                })?;
+                self.chaser
+                    .type_text(text)
+                    .await
+                    .map_err(|e| AgentError::Internal {
+                        message: format!("Type failed: {}", e),
+                    })?;
             }
         } else {
             element
@@ -631,9 +669,12 @@ impl AgentPage {
             selector.replace('\'', "\\'"),
             value.replace('\'', "\\'")
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
@@ -656,9 +697,12 @@ impl AgentPage {
             selector.replace('\'', "\\'"),
             values_json
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
@@ -679,14 +723,17 @@ impl AgentPage {
 
     /// Upload files to a file input.
     pub async fn upload(&self, selector: &str, files: &[&str]) -> AgentResult<()> {
-        use crate::cdp::browser_protocol::dom::{SetFileInputFilesParams};
+        use crate::cdp::browser_protocol::dom::SetFileInputFilesParams;
 
         let element = self.find_element(selector).await?;
 
         // Get the backend node ID from the element
-        let node = element.description().await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get node description: {}", e),
-        })?;
+        let node = element
+            .description()
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get node description: {}", e),
+            })?;
 
         let backend_node_id = node.backend_node_id;
 
@@ -751,9 +798,12 @@ impl AgentPage {
                     center_x,
                     center_y
                 );
-                self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-                    message: format!("Tap failed: {}", e),
-                })?;
+                self.chaser
+                    .evaluate(&js)
+                    .await
+                    .map_err(|e| AgentError::Internal {
+                        message: format!("Tap failed: {}", e),
+                    })?;
             }
             Err(_) => {
                 // Fallback to click
@@ -770,12 +820,18 @@ impl AgentPage {
         let source_el = self.find_element(source).await?;
         let target_el = self.find_element(target).await?;
 
-        let source_box = source_el.bounding_box().await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get source bounding box: {}", e),
-        })?;
-        let target_box = target_el.bounding_box().await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get target bounding box: {}", e),
-        })?;
+        let source_box = source_el
+            .bounding_box()
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get source bounding box: {}", e),
+            })?;
+        let target_box = target_el
+            .bounding_box()
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get target bounding box: {}", e),
+            })?;
 
         let source_x = source_box.x + source_box.width / 2.0;
         let source_y = source_box.y + source_box.height / 2.0;
@@ -783,21 +839,23 @@ impl AgentPage {
         let target_y = target_box.y + target_box.height / 2.0;
 
         // Use human-like mouse movement for drag
-        self.chaser.move_mouse_human(source_x, source_y).await.map_err(|e| {
-            AgentError::Internal {
+        self.chaser
+            .move_mouse_human(source_x, source_y)
+            .await
+            .map_err(|e| AgentError::Internal {
                 message: format!("Mouse move failed: {}", e),
-            }
-        })?;
+            })?;
 
         // Mouse down
         self.mouse_down(MouseButton::Left).await?;
 
         // Move to target
-        self.chaser.move_mouse_human(target_x, target_y).await.map_err(|e| {
-            AgentError::Internal {
+        self.chaser
+            .move_mouse_human(target_x, target_y)
+            .await
+            .map_err(|e| AgentError::Internal {
                 message: format!("Mouse move failed: {}", e),
-            }
-        })?;
+            })?;
 
         // Mouse up
         self.mouse_up(MouseButton::Left).await?;
@@ -828,9 +886,12 @@ impl AgentPage {
             event_type,
             init_json
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
@@ -846,9 +907,12 @@ impl AgentPage {
             "#,
             selector.replace('\'', "\\'")
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
@@ -915,13 +979,13 @@ impl AgentPage {
 
     /// Get the page title.
     pub async fn get_title(&self) -> AgentResult<String> {
-        let result = self
-            .chaser
-            .evaluate("document.title")
-            .await
-            .map_err(|e| AgentError::JavaScript {
-                message: e.to_string(),
-            })?;
+        let result =
+            self.chaser
+                .evaluate("document.title")
+                .await
+                .map_err(|e| AgentError::JavaScript {
+                    message: e.to_string(),
+                })?;
         result
             .and_then(|v| v.as_str().map(String::from))
             .ok_or_else(|| AgentError::Internal {
@@ -955,17 +1019,23 @@ impl AgentPage {
                 })
                 .map(|opt| opt.unwrap_or_default())
         } else {
-            self.chaser.content().await.map_err(|e| AgentError::Internal {
-                message: format!("Failed to get page HTML: {}", e),
-            })
+            self.chaser
+                .content()
+                .await
+                .map_err(|e| AgentError::Internal {
+                    message: format!("Failed to get page HTML: {}", e),
+                })
         }
     }
 
     /// Get the full page content (HTML).
     pub async fn content(&self) -> AgentResult<String> {
-        self.chaser.content().await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get page content: {}", e),
-        })
+        self.chaser
+            .content()
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get page content: {}", e),
+            })
     }
 
     /// Get inner text of an element (alias for get_text).
@@ -994,11 +1064,18 @@ impl AgentPage {
     }
 
     /// Get an attribute value.
-    pub async fn get_attribute(&self, selector: &str, attribute: &str) -> AgentResult<Option<String>> {
+    pub async fn get_attribute(
+        &self,
+        selector: &str,
+        attribute: &str,
+    ) -> AgentResult<Option<String>> {
         let element = self.find_element(selector).await?;
-        element.attribute(attribute).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get attribute: {}", e),
-        })
+        element
+            .attribute(attribute)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get attribute: {}", e),
+            })
     }
 
     /// Count elements matching a selector.
@@ -1009,9 +1086,13 @@ impl AgentPage {
             "document.querySelectorAll('{}').length",
             css.replace('\'', "\\'")
         );
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         result
             .and_then(|v| v.as_u64())
             .map(|n| n as usize)
@@ -1023,9 +1104,12 @@ impl AgentPage {
     /// Get bounding box of an element.
     pub async fn get_bounding_box(&self, selector: &str) -> AgentResult<BoundingBoxData> {
         let element = self.find_element(selector).await?;
-        let bbox = element.bounding_box().await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get bounding box: {}", e),
-        })?;
+        let bbox = element
+            .bounding_box()
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get bounding box: {}", e),
+            })?;
 
         Ok(BoundingBoxData {
             x: bbox.x,
@@ -1075,9 +1159,13 @@ impl AgentPage {
             "#,
             css.replace('\'', "\\'")
         );
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(result.unwrap_or(serde_json::Value::Null))
     }
 
@@ -1102,9 +1190,13 @@ impl AgentPage {
             "#,
             css.replace('\'', "\\'")
         );
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(result.and_then(|v| v.as_bool()).unwrap_or(false))
     }
 
@@ -1119,9 +1211,13 @@ impl AgentPage {
             "#,
             css.replace('\'', "\\'")
         );
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(result.and_then(|v| v.as_bool()).unwrap_or(false))
     }
 
@@ -1136,9 +1232,13 @@ impl AgentPage {
             "#,
             css.replace('\'', "\\'")
         );
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(result.and_then(|v| v.as_bool()).unwrap_or(false))
     }
 
@@ -1158,9 +1258,13 @@ impl AgentPage {
             "#,
             css.replace('\'', "\\'")
         );
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(result.and_then(|v| v.as_bool()).unwrap_or(false))
     }
 
@@ -1183,9 +1287,12 @@ impl AgentPage {
             "#,
             key, key
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Press key failed: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Press key failed: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1236,9 +1343,12 @@ impl AgentPage {
             "#,
             key, key, modifiers_str, key, key, modifiers_str
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Keyboard shortcut failed: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Keyboard shortcut failed: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1255,9 +1365,12 @@ impl AgentPage {
             "#,
             key, key
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Key down failed: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Key down failed: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1273,9 +1386,12 @@ impl AgentPage {
             "#,
             key, key
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Key up failed: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Key up failed: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1290,9 +1406,12 @@ impl AgentPage {
             "#,
             text.replace('\'', "\\'").replace('\n', "\\n")
         );
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Insert text failed: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Insert text failed: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1375,7 +1494,9 @@ impl AgentPage {
 
     /// Scroll using mouse wheel.
     pub async fn wheel(&self, delta_x: f64, delta_y: f64) -> AgentResult<()> {
-        use crate::cdp::browser_protocol::input::{DispatchMouseEventParams, DispatchMouseEventType};
+        use crate::cdp::browser_protocol::input::{
+            DispatchMouseEventParams, DispatchMouseEventType,
+        };
 
         let params = DispatchMouseEventParams::builder()
             .r#type(DispatchMouseEventType::MouseWheel)
@@ -1401,9 +1522,12 @@ impl AgentPage {
     /// Scroll the page or element.
     pub async fn scroll(&self, direction: ScrollDirection, amount: i32) -> AgentResult<()> {
         let (_delta_x, delta_y) = direction.to_deltas(amount);
-        self.chaser.scroll_human(delta_y).await.map_err(|e| AgentError::Internal {
-            message: format!("Scroll failed: {}", e),
-        })?;
+        self.chaser
+            .scroll_human(delta_y)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Scroll failed: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1425,13 +1549,13 @@ impl AgentPage {
 
     /// Evaluate JavaScript and return the result.
     pub async fn evaluate(&self, expression: &str) -> AgentResult<serde_json::Value> {
-        let result = self
-            .chaser
-            .evaluate(expression)
-            .await
-            .map_err(|e| AgentError::JavaScript {
-                message: e.to_string(),
-            })?;
+        let result =
+            self.chaser
+                .evaluate(expression)
+                .await
+                .map_err(|e| AgentError::JavaScript {
+                    message: e.to_string(),
+                })?;
         Ok(result.unwrap_or(serde_json::Value::Null))
     }
 
@@ -1441,7 +1565,9 @@ impl AgentPage {
 
     /// Take a screenshot.
     pub async fn screenshot(&self, options: ScreenshotOptions) -> AgentResult<ScreenshotData> {
-        use crate::cdp::browser_protocol::page::{CaptureScreenshotFormat, CaptureScreenshotParams};
+        use crate::cdp::browser_protocol::page::{
+            CaptureScreenshotFormat, CaptureScreenshotParams,
+        };
 
         let format = match options.format {
             ScreenshotFormat::Png => CaptureScreenshotFormat::Png,
@@ -1578,9 +1704,13 @@ impl AgentPage {
         };
 
         loop {
-            let result = self.chaser.evaluate(js).await.map_err(|e| AgentError::JavaScript {
-                message: e.to_string(),
-            })?;
+            let result = self
+                .chaser
+                .evaluate(js)
+                .await
+                .map_err(|e| AgentError::JavaScript {
+                    message: e.to_string(),
+                })?;
 
             if result.and_then(|v| v.as_bool()).unwrap_or(false) {
                 return Ok(());
@@ -1603,13 +1733,13 @@ impl AgentPage {
         let timeout = std::time::Duration::from_millis(timeout_ms);
 
         loop {
-            let result = self
-                .chaser
-                .evaluate(expression)
-                .await
-                .map_err(|e| AgentError::JavaScript {
-                    message: e.to_string(),
-                })?;
+            let result =
+                self.chaser
+                    .evaluate(expression)
+                    .await
+                    .map_err(|e| AgentError::JavaScript {
+                        message: e.to_string(),
+                    })?;
 
             // Check if result is truthy
             let is_truthy = match result {
@@ -1705,7 +1835,12 @@ impl AgentPage {
     }
 
     /// Set geolocation.
-    pub async fn set_geolocation(&self, latitude: f64, longitude: f64, accuracy: Option<f64>) -> AgentResult<()> {
+    pub async fn set_geolocation(
+        &self,
+        latitude: f64,
+        longitude: f64,
+        accuracy: Option<f64>,
+    ) -> AgentResult<()> {
         use crate::cdp::browser_protocol::emulation::SetGeolocationOverrideParams;
 
         let mut params_builder = SetGeolocationOverrideParams::builder()
@@ -1737,15 +1872,21 @@ impl AgentPage {
             "window.navigator.onLine = true; window.dispatchEvent(new Event('online'));"
         };
 
-        self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to set offline mode: {}", e),
-        })?;
+        self.chaser
+            .evaluate(js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set offline mode: {}", e),
+            })?;
         Ok(())
     }
 
     /// Set extra HTTP headers for all requests.
-    pub async fn set_headers(&self, headers: std::collections::HashMap<String, String>) -> AgentResult<()> {
-        use crate::cdp::browser_protocol::network::{SetExtraHttpHeadersParams, Headers};
+    pub async fn set_headers(
+        &self,
+        headers: std::collections::HashMap<String, String>,
+    ) -> AgentResult<()> {
+        use crate::cdp::browser_protocol::network::{Headers, SetExtraHttpHeadersParams};
 
         // Convert HashMap to JSON object for Headers
         let json_headers: serde_json::Map<String, serde_json::Value> = headers
@@ -1769,7 +1910,8 @@ impl AgentPage {
     pub async fn set_credentials(&self, username: &str, password: &str) -> AgentResult<()> {
         // Use JavaScript to set authorization header for fetch requests
         let credentials = format!("{}:{}", username, password);
-        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, credentials);
+        let encoded =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, credentials);
 
         let js = format!(
             r#"
@@ -1784,9 +1926,12 @@ impl AgentPage {
             encoded
         );
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to set credentials: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set credentials: {}", e),
+            })?;
         Ok(())
     }
 
@@ -1798,22 +1943,29 @@ impl AgentPage {
         reduced_motion: Option<&str>,
         forced_colors: Option<&str>,
     ) -> AgentResult<()> {
-        use crate::cdp::browser_protocol::emulation::{
-            SetEmulatedMediaParams, MediaFeature,
-        };
+        use crate::cdp::browser_protocol::emulation::{MediaFeature, SetEmulatedMediaParams};
 
         let mut features = Vec::new();
 
         if let Some(scheme) = color_scheme {
-            features.push(MediaFeature::new("prefers-color-scheme".to_string(), scheme.to_string()));
+            features.push(MediaFeature::new(
+                "prefers-color-scheme".to_string(),
+                scheme.to_string(),
+            ));
         }
 
         if let Some(motion) = reduced_motion {
-            features.push(MediaFeature::new("prefers-reduced-motion".to_string(), motion.to_string()));
+            features.push(MediaFeature::new(
+                "prefers-reduced-motion".to_string(),
+                motion.to_string(),
+            ));
         }
 
         if let Some(colors) = forced_colors {
-            features.push(MediaFeature::new("forced-colors".to_string(), colors.to_string()));
+            features.push(MediaFeature::new(
+                "forced-colors".to_string(),
+                colors.to_string(),
+            ));
         }
 
         let mut params_builder = SetEmulatedMediaParams::builder();
@@ -1879,9 +2031,7 @@ impl AgentPage {
     pub async fn set_locale(&self, locale: &str) -> AgentResult<()> {
         use crate::cdp::browser_protocol::emulation::SetLocaleOverrideParams;
 
-        let params = SetLocaleOverrideParams::builder()
-            .locale(locale)
-            .build();
+        let params = SetLocaleOverrideParams::builder().locale(locale).build();
 
         self.chaser
             .raw_page()
@@ -1898,7 +2048,10 @@ impl AgentPage {
     // =========================================================================
 
     /// Get cookies.
-    pub async fn cookies_get(&self, urls: Option<Vec<&str>>) -> AgentResult<Vec<serde_json::Value>> {
+    pub async fn cookies_get(
+        &self,
+        urls: Option<Vec<&str>>,
+    ) -> AgentResult<Vec<serde_json::Value>> {
         use crate::cdp::browser_protocol::network::GetCookiesParams;
 
         let params = if let Some(url_list) = urls {
@@ -1909,14 +2062,14 @@ impl AgentPage {
             GetCookiesParams::builder().build()
         };
 
-        let result = self
-            .chaser
-            .raw_page()
-            .execute(params)
-            .await
-            .map_err(|e| AgentError::Internal {
-                message: format!("Failed to get cookies: {}", e),
-            })?;
+        let result =
+            self.chaser
+                .raw_page()
+                .execute(params)
+                .await
+                .map_err(|e| AgentError::Internal {
+                    message: format!("Failed to get cookies: {}", e),
+                })?;
 
         // Convert cookies to JSON values
         let cookies: Vec<serde_json::Value> = result
@@ -1949,9 +2102,7 @@ impl AgentPage {
         let mut cookie_params: Vec<CookieParam> = Vec::new();
 
         for c in cookies {
-            let mut param = CookieParam::builder()
-                .name(c.name)
-                .value(c.value);
+            let mut param = CookieParam::builder().name(c.name).value(c.value);
 
             // Use provided domain or extract from current URL
             if let Some(domain) = c.domain {
@@ -2047,9 +2198,13 @@ impl AgentPage {
             )
         };
 
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
 
         Ok(result.unwrap_or(serde_json::Value::Null))
     }
@@ -2072,20 +2227,29 @@ impl AgentPage {
             value.replace('\'', "\\'")
         );
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
     /// Clear storage (localStorage or sessionStorage).
-    pub async fn storage_clear(&self, storage_type: Option<super::commands::StorageType>) -> AgentResult<()> {
+    pub async fn storage_clear(
+        &self,
+        storage_type: Option<super::commands::StorageType>,
+    ) -> AgentResult<()> {
         if let Some(st) = storage_type {
             let storage_name = st.as_str();
             let js = format!("{}.clear();", storage_name);
-            self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-                message: e.to_string(),
-            })?;
+            self.chaser
+                .evaluate(&js)
+                .await
+                .map_err(|e| AgentError::JavaScript {
+                    message: e.to_string(),
+                })?;
         } else {
             // Clear both
             self.chaser
@@ -2120,7 +2284,8 @@ impl AgentPage {
 
     /// Inject a script tag into the page.
     pub async fn add_script(&self, content_or_url: &str) -> AgentResult<()> {
-        let js = if content_or_url.starts_with("http://") || content_or_url.starts_with("https://") {
+        let js = if content_or_url.starts_with("http://") || content_or_url.starts_with("https://")
+        {
             format!(
                 r#"
                 const script = document.createElement('script');
@@ -2140,15 +2305,19 @@ impl AgentPage {
             )
         };
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
     /// Inject a style tag into the page.
     pub async fn add_style(&self, content_or_url: &str) -> AgentResult<()> {
-        let js = if content_or_url.starts_with("http://") || content_or_url.starts_with("https://") {
+        let js = if content_or_url.starts_with("http://") || content_or_url.starts_with("https://")
+        {
             format!(
                 r#"
                 const link = document.createElement('link');
@@ -2169,9 +2338,12 @@ impl AgentPage {
             )
         };
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::JavaScript {
-            message: e.to_string(),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::JavaScript {
+                message: e.to_string(),
+            })?;
         Ok(())
     }
 
@@ -2208,7 +2380,11 @@ impl AgentPage {
     // =========================================================================
 
     /// Set dialog handler (accept or dismiss dialogs automatically).
-    pub async fn dialog(&self, action: super::commands::DialogAction, prompt_text: Option<&str>) -> AgentResult<()> {
+    pub async fn dialog(
+        &self,
+        action: super::commands::DialogAction,
+        prompt_text: Option<&str>,
+    ) -> AgentResult<()> {
         let accept = matches!(action, super::commands::DialogAction::Accept);
         let text = prompt_text.map(|s| s.to_string());
 
@@ -2240,9 +2416,12 @@ impl AgentPage {
             .to_string()
         };
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to set dialog handler: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set dialog handler: {}", e),
+            })?;
         Ok(())
     }
 
@@ -2251,35 +2430,38 @@ impl AgentPage {
     // =========================================================================
 
     /// Generate a PDF of the page.
-    pub async fn pdf(&self, path: Option<&str>, format: Option<super::commands::PdfFormat>) -> AgentResult<Vec<u8>> {
+    pub async fn pdf(
+        &self,
+        path: Option<&str>,
+        format: Option<super::commands::PdfFormat>,
+    ) -> AgentResult<Vec<u8>> {
         use crate::cdp::browser_protocol::page::PrintToPdfParams;
 
         let mut params_builder = PrintToPdfParams::builder();
 
         if let Some(fmt) = format {
             let (width, height) = fmt.dimensions();
-            params_builder = params_builder
-                .paper_width(width)
-                .paper_height(height);
+            params_builder = params_builder.paper_width(width).paper_height(height);
         }
 
         let params = params_builder.build();
 
-        let result = self
-            .chaser
-            .raw_page()
-            .execute(params)
-            .await
-            .map_err(|e| AgentError::Internal {
-                message: format!("Failed to generate PDF: {}", e),
-            })?;
+        let result =
+            self.chaser
+                .raw_page()
+                .execute(params)
+                .await
+                .map_err(|e| AgentError::Internal {
+                    message: format!("Failed to generate PDF: {}", e),
+                })?;
 
         // Decode base64 data
         let data_bytes: &[u8] = result.data.as_ref();
-        let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_bytes)
-            .map_err(|e| AgentError::Internal {
-                message: format!("Failed to decode PDF: {}", e),
-            })?;
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_bytes)
+                .map_err(|e| AgentError::Internal {
+                    message: format!("Failed to decode PDF: {}", e),
+                })?;
 
         if let Some(p) = path {
             std::fs::write(p, &decoded).map_err(|e| AgentError::Internal {
@@ -2305,9 +2487,7 @@ impl AgentPage {
         url_pattern: &str,
         response: super::commands::RouteResponse,
     ) -> AgentResult<()> {
-        use crate::cdp::browser_protocol::fetch::{
-            EnableParams, RequestPattern, RequestStage,
-        };
+        use crate::cdp::browser_protocol::fetch::{EnableParams, RequestPattern, RequestStage};
 
         // Enable fetch interception
         let pattern = RequestPattern::builder()
@@ -2341,9 +2521,15 @@ impl AgentPage {
                     url_pattern.replace('\'', "\\'")
                 )
             }
-            super::commands::RouteResponse::Fulfill { body, status, headers, content_type } => {
+            super::commands::RouteResponse::Fulfill {
+                body,
+                status,
+                headers,
+                content_type,
+            } => {
                 let body_json = serde_json::to_string(&body).unwrap_or_else(|_| "null".to_string());
-                let headers_json = serde_json::to_string(&headers).unwrap_or_else(|_| "{}".to_string());
+                let headers_json =
+                    serde_json::to_string(&headers).unwrap_or_else(|_| "{}".to_string());
                 let ct = content_type.unwrap_or_else(|| "text/plain".to_string());
                 format!(
                     r#"
@@ -2374,9 +2560,12 @@ impl AgentPage {
             }
         };
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to set route: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to set route: {}", e),
+            })?;
 
         Ok(())
     }
@@ -2396,9 +2585,12 @@ impl AgentPage {
             "window.__chaserRoutes = {};".to_string()
         };
 
-        self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to remove route: {}", e),
-        })?;
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to remove route: {}", e),
+            })?;
         Ok(())
     }
 
@@ -2443,9 +2635,13 @@ impl AgentPage {
             selector_or_name_or_url.replace('\'', "\\'")
         );
 
-        let result = self.chaser.evaluate(&js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to find frame: {}", e),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to find frame: {}", e),
+            })?;
 
         if !result.and_then(|v| v.as_bool()).unwrap_or(false) {
             return Err(AgentError::ElementNotFound {
@@ -2485,9 +2681,13 @@ impl AgentPage {
             "window.__chaserConsoleMessages || []"
         };
 
-        let result = self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get console messages: {}", e),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get console messages: {}", e),
+            })?;
 
         match result {
             Some(serde_json::Value::Array(arr)) => Ok(arr),
@@ -2509,9 +2709,13 @@ impl AgentPage {
             "window.__chaserPageErrors || []"
         };
 
-        let result = self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to get page errors: {}", e),
-        })?;
+        let result = self
+            .chaser
+            .evaluate(js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to get page errors: {}", e),
+            })?;
 
         match result {
             Some(serde_json::Value::Array(arr)) => Ok(arr),
@@ -2542,9 +2746,12 @@ impl AgentPage {
         });
         "#;
 
-        self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to start console tracking: {}", e),
-        })?;
+        self.chaser
+            .evaluate(js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to start console tracking: {}", e),
+            })?;
         Ok(())
     }
 
@@ -2571,9 +2778,243 @@ impl AgentPage {
         });
         "#;
 
-        self.chaser.evaluate(js).await.map_err(|e| AgentError::Internal {
-            message: format!("Failed to start error tracking: {}", e),
+        self.chaser
+            .evaluate(js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to start error tracking: {}", e),
+            })?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Recording & Tracing (Phase 17)
+    // =========================================================================
+
+    /// Start trace recording.
+    pub async fn trace_start(&self, options: TraceOptions) -> AgentResult<()> {
+        let mut recorder = self.trace_recorder.lock().await;
+        recorder.start(options);
+        Ok(())
+    }
+
+    /// Stop trace recording and save to file.
+    pub async fn trace_stop(&self, path: &str) -> AgentResult<Vec<super::recording::TraceEntry>> {
+        let mut recorder = self.trace_recorder.lock().await;
+        let entries = recorder.stop();
+        // Save to file
+        let json = serde_json::to_string_pretty(&entries).map_err(|e| AgentError::Internal {
+            message: format!("Failed to serialize trace: {}", e),
         })?;
+        std::fs::write(path, json).map_err(|e| AgentError::Internal {
+            message: format!("Failed to write trace file: {}", e),
+        })?;
+        Ok(entries)
+    }
+
+    /// Start HAR (HTTP Archive) recording.
+    pub async fn har_start(&self) -> AgentResult<()> {
+        let mut recorder = self.har_recorder.lock().await;
+        recorder.start(true);
+
+        // Enable network tracking via CDP
+        use crate::cdp::browser_protocol::network::EnableParams;
+        self.chaser
+            .raw_page()
+            .execute(EnableParams::default())
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to enable network tracking: {}", e),
+            })?;
+
+        Ok(())
+    }
+
+    /// Stop HAR recording and save to file.
+    pub async fn har_stop(&self, path: &str) -> AgentResult<HarLog> {
+        let mut recorder = self.har_recorder.lock().await;
+        let log = recorder.stop();
+        recorder.save_to_file(path)?;
+        Ok(log)
+    }
+
+    /// Check if trace recording is active.
+    pub async fn is_tracing(&self) -> bool {
+        self.trace_recorder.lock().await.is_active()
+    }
+
+    /// Check if HAR recording is active.
+    pub async fn is_har_recording(&self) -> bool {
+        self.har_recorder.lock().await.is_active()
+    }
+
+    // =========================================================================
+    // Clipboard (Phase 19)
+    // =========================================================================
+
+    /// Perform a clipboard operation.
+    pub async fn clipboard(
+        &self,
+        action: ClipboardAction,
+        text: Option<&str>,
+    ) -> AgentResult<ClipboardResult> {
+        // Grant clipboard permissions first
+        self.chaser
+            .evaluate(super::clipboard::grant_clipboard_permissions_js())
+            .await
+            .ok(); // Best-effort
+
+        let js = super::clipboard::clipboard_js(action, text);
+        let result = self
+            .chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Clipboard operation failed: {}", e),
+            })?;
+
+        match result {
+            Some(value) => {
+                let success = value["success"].as_bool().unwrap_or(false);
+                let text = value["text"].as_str().map(String::from);
+                Ok(ClipboardResult { text, success })
+            }
+            None => Ok(ClipboardResult {
+                text: None,
+                success: false,
+            }),
+        }
+    }
+
+    // =========================================================================
+    // Screencast (Phase 20)
+    // =========================================================================
+
+    /// Start screencast using CDP Page.startScreencast.
+    pub async fn screencast_start(&self, options: ScreencastOptions) -> AgentResult<()> {
+        let params = super::streaming::screencast_start_params(&options);
+
+        // Use CDP to start screencast
+        let js = format!(
+            "window.__chaserScreencast = {{ active: true, options: {} }}",
+            serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string())
+        );
+        self.chaser
+            .evaluate(&js)
+            .await
+            .map_err(|e| AgentError::Internal {
+                message: format!("Failed to start screencast: {}", e),
+            })?;
+
+        let mut ctrl = self.screencast.lock().await;
+        ctrl.start(options);
+
+        Ok(())
+    }
+
+    /// Stop screencast.
+    pub async fn screencast_stop(&self) -> AgentResult<Vec<super::streaming::ScreencastFrame>> {
+        self.chaser
+            .evaluate("window.__chaserScreencast = { active: false }")
+            .await
+            .ok();
+
+        let mut ctrl = self.screencast.lock().await;
+        Ok(ctrl.stop())
+    }
+
+    // =========================================================================
+    // Raw Input (Phase 21)
+    // =========================================================================
+
+    /// Dispatch a raw mouse input event via CDP.
+    pub async fn input_mouse(&self, input: &RawMouseInput) -> AgentResult<()> {
+        super::raw_input::dispatch_mouse_event(self.chaser.raw_page(), input).await
+    }
+
+    /// Dispatch a raw keyboard input event via CDP.
+    pub async fn input_keyboard(&self, input: &RawKeyboardInput) -> AgentResult<()> {
+        super::raw_input::dispatch_keyboard_event(self.chaser.raw_page(), input).await
+    }
+
+    /// Dispatch a raw touch input event via CDP.
+    pub async fn input_touch(&self, input: &RawTouchInput) -> AgentResult<()> {
+        super::raw_input::dispatch_touch_event(self.chaser.raw_page(), input).await
+    }
+
+    // =========================================================================
+    // State Save/Load (Phase 22)
+    // =========================================================================
+
+    /// Save the current page state (cookies + storage) to a file.
+    pub async fn state_save(&self, path: &str) -> AgentResult<()> {
+        use super::session::SessionState;
+
+        let mut state = SessionState::new();
+
+        // Get cookies
+        state.cookies = self.cookies_get(None).await.unwrap_or_default();
+
+        // Get localStorage
+        let ls_result = self
+            .chaser
+            .evaluate(
+                r#"(function() {
+                const result = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    result[key] = localStorage.getItem(key);
+                }
+                return JSON.stringify(result);
+            })()"#,
+            )
+            .await
+            .ok()
+            .flatten();
+
+        if let Some(serde_json::Value::String(json_str)) = ls_result {
+            if let Ok(parsed) =
+                serde_json::from_str::<std::collections::HashMap<String, String>>(&json_str)
+            {
+                let url = self
+                    .get_url()
+                    .await
+                    .unwrap_or_else(|_| "unknown".to_string());
+                state.local_storage.insert(url, parsed);
+            }
+        }
+
+        state.save(path)
+    }
+
+    /// Load page state (cookies + storage) from a file.
+    pub async fn state_load(&self, path: &str) -> AgentResult<()> {
+        use super::session::SessionState;
+
+        let state = SessionState::load(path)?;
+
+        // Restore cookies
+        let cookies: Vec<super::commands::Cookie> = state
+            .cookies
+            .iter()
+            .filter_map(|v| serde_json::from_value(v.clone()).ok())
+            .collect();
+        if !cookies.is_empty() {
+            self.cookies_set(cookies).await?;
+        }
+
+        // Restore localStorage
+        for storage in state.local_storage.values() {
+            for (key, value) in storage {
+                let js = format!(
+                    "localStorage.setItem('{}', '{}')",
+                    key.replace('\'', "\\'"),
+                    value.replace('\'', "\\'")
+                );
+                self.chaser.evaluate(&js).await.ok();
+            }
+        }
+
         Ok(())
     }
 
@@ -2607,6 +3048,6 @@ impl std::fmt::Debug for AgentPage {
         f.debug_struct("AgentPage")
             .field("track_console", &self.track_console)
             .field("track_errors", &self.track_errors)
-            .finish()
+            .finish_non_exhaustive()
     }
 }

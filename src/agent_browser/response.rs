@@ -2,6 +2,9 @@
 //!
 //! Provides unified response types that match the agent-browser JSON protocol.
 
+// These types are part of the JSON protocol and may be constructed via deserialization.
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -172,7 +175,11 @@ impl fmt::Display for AgentError {
                 write!(f, "Element not found: {}", selector)
             }
             Self::InvalidRef { ref_str } => {
-                write!(f, "Invalid ref format '{}' (expected @e1, @e2, etc.)", ref_str)
+                write!(
+                    f,
+                    "Invalid ref format '{}' (expected @e1, @e2, etc.)",
+                    ref_str
+                )
             }
             Self::RefNotFound { ref_id } => {
                 write!(f, "Ref '{}' not found in current snapshot", ref_id)
@@ -184,7 +191,11 @@ impl fmt::Display for AgentError {
                 waiting_for,
                 timeout_ms,
             } => {
-                write!(f, "Timeout after {}ms waiting for: {}", timeout_ms, waiting_for)
+                write!(
+                    f,
+                    "Timeout after {}ms waiting for: {}",
+                    timeout_ms, waiting_for
+                )
             }
             Self::Navigation { message } => {
                 write!(f, "Navigation error: {}", message)
@@ -258,8 +269,6 @@ pub enum ScreenshotData {
 }
 
 /// Element count response data.
-/// TODO: Used when count response is needed.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CountData {
     /// Number of matching elements.
@@ -280,8 +289,6 @@ pub struct BoundingBoxData {
 }
 
 /// Tab information.
-/// TODO: Used when tab management is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabInfo {
     /// Tab index.
@@ -295,8 +302,6 @@ pub struct TabInfo {
 }
 
 /// Tab list response data.
-/// TODO: Used when tab management is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabListData {
     /// List of tabs.
@@ -319,8 +324,6 @@ pub struct ConsoleMessage {
 }
 
 /// Console response data.
-/// TODO: Used when console tracking is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsoleData {
     /// Console messages.
@@ -344,8 +347,6 @@ pub struct PageError {
 }
 
 /// Errors response data.
-/// TODO: Used when error tracking is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorsData {
     /// Page errors.
@@ -353,8 +354,6 @@ pub struct ErrorsData {
 }
 
 /// Network request info.
-/// TODO: Used when network tracking is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestInfo {
     /// Request ID.
@@ -372,8 +371,6 @@ pub struct RequestInfo {
 }
 
 /// Requests response data.
-/// TODO: Used when network tracking is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestsData {
     /// Tracked requests.
@@ -381,8 +378,6 @@ pub struct RequestsData {
 }
 
 /// Computed styles response data.
-/// TODO: Used when styles inspection is implemented.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StylesData {
     /// Bounding box.

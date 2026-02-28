@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Options for snapshot generation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SnapshotOptions {
     /// Only include interactive elements (buttons, links, inputs, etc.).
     pub interactive_only: bool,
@@ -266,7 +266,12 @@ impl AccessibilityNode {
     /// Count interactive nodes in this subtree.
     pub fn count_interactive(&self) -> usize {
         let self_count = if self.interactive { 1 } else { 0 };
-        self_count + self.children.iter().map(|c| c.count_interactive()).sum::<usize>()
+        self_count
+            + self
+                .children
+                .iter()
+                .map(|c| c.count_interactive())
+                .sum::<usize>()
     }
 }
 
@@ -451,7 +456,10 @@ fn truncate_value(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.replace('\n', "\\n").replace('\r', "")
     } else {
-        format!("{}...", &s[..max_len].replace('\n', "\\n").replace('\r', ""))
+        format!(
+            "{}...",
+            &s[..max_len].replace('\n', "\\n").replace('\r', "")
+        )
     }
 }
 
@@ -524,13 +532,19 @@ mod tests {
 
         let mut form = AccessibilityNode::new("form").with_name("Login");
 
-        let mut email = AccessibilityNode::new("textbox").with_name("Email").interactive();
+        let mut email = AccessibilityNode::new("textbox")
+            .with_name("Email")
+            .interactive();
         email.ref_id = Some(RefId::new(1));
 
-        let mut password = AccessibilityNode::new("textbox").with_name("Password").interactive();
+        let mut password = AccessibilityNode::new("textbox")
+            .with_name("Password")
+            .interactive();
         password.ref_id = Some(RefId::new(2));
 
-        let mut submit = AccessibilityNode::new("button").with_name("Sign In").interactive();
+        let mut submit = AccessibilityNode::new("button")
+            .with_name("Sign In")
+            .interactive();
         submit.ref_id = Some(RefId::new(3));
 
         form.add_child(email);
@@ -560,7 +574,9 @@ mod tests {
     #[test]
     fn test_snapshot_from_tree() {
         let mut root = AccessibilityNode::new("document");
-        let btn = AccessibilityNode::new("button").with_name("Click me").interactive();
+        let btn = AccessibilityNode::new("button")
+            .with_name("Click me")
+            .interactive();
         root.add_child(btn);
 
         let snapshot = Snapshot::from_tree(root, &SnapshotOptions::default());

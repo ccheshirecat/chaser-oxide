@@ -11,6 +11,10 @@
 //! - **Semantic Locators**: Find elements by role, text, label, placeholder, etc.
 //! - **108+ Commands**: Full feature parity with agent-browser CLI.
 //! - **JSON Protocol**: Machine-readable command/response format for AI agents.
+//! - **Tab Management**: Multi-tab/window support via AgentBrowser.
+//! - **Recording & Tracing**: Trace/HAR recording for debugging and replay.
+//! - **Session Management**: Isolated sessions with state persistence.
+//! - **CLI Interface**: JSON-over-stdin protocol for AI agent integration.
 //!
 //! # Example
 //!
@@ -43,18 +47,35 @@
 //! # }
 //! ```
 
+// Core modules
 mod commands;
 mod locator;
 mod refs;
 mod response;
 mod snapshot;
 
+// Phase modules
 pub mod agent_page;
+pub mod browser_manager;
+pub mod cli;
+pub mod clipboard;
+pub mod perf;
+pub mod raw_input;
+pub mod recording;
+pub mod session;
+pub mod streaming;
 
 // Re-export main types
 pub use agent_page::AgentPage;
+pub use browser_manager::AgentBrowser;
+pub use cli::{CliCommand, CliResponse};
+pub use clipboard::{ClipboardAction, ClipboardResult};
 pub use commands::*;
 pub use locator::{Locator, LocatorStrategy};
+pub use perf::{PerfTracker, SnapshotCache};
+pub use recording::{HarLog, HarRecorder, TraceEntry, TraceRecorder};
 pub use refs::{RefId, RefInfo, RefMap};
 pub use response::{AgentError, AgentResponse, AgentResult};
+pub use session::{CloudProvider, LaunchOptions, SessionConfig, SessionState};
 pub use snapshot::{AccessibilityNode, Snapshot, SnapshotOptions};
+pub use streaming::{ScreencastController, ScreencastFrame, StreamConfig};

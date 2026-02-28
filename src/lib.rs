@@ -111,4 +111,4 @@ pub use crate::profiles::*;
 pub use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
 
 pub mod agent_browser;
-pub use crate::agent_browser::AgentPage;
+pub use crate::agent_browser::{AgentBrowser, AgentPage};

@@ -23,34 +23,19 @@ pub enum LocatorStrategy {
     },
 
     /// By visible text content.
-    Text {
-        text: String,
-        exact: bool,
-    },
+    Text { text: String, exact: bool },
 
     /// By associated label text.
-    Label {
-        label: String,
-        exact: bool,
-    },
+    Label { label: String, exact: bool },
 
     /// By placeholder text.
-    Placeholder {
-        text: String,
-        exact: bool,
-    },
+    Placeholder { text: String, exact: bool },
 
     /// By alt text (for images).
-    AltText {
-        text: String,
-        exact: bool,
-    },
+    AltText { text: String, exact: bool },
 
     /// By title attribute.
-    Title {
-        title: String,
-        exact: bool,
-    },
+    Title { title: String, exact: bool },
 
     /// By data-testid attribute.
     TestId(String),
@@ -535,14 +520,21 @@ impl Locator {
                         backend_id
                     ))
                 } else if let Some(ref selector) = info.selector {
-                    Ok(format!("document.querySelector('{}')", escape_js_string(selector)))
+                    Ok(format!(
+                        "document.querySelector('{}')",
+                        escape_js_string(selector)
+                    ))
                 } else {
                     // Use role-based query
                     Ok(self.role_to_js(&info.role, info.name.as_deref(), info.nth))
                 }
             }
 
-            LocatorStrategy::Role { role, name, exact: _ } => Ok(self.role_to_js(role, name.as_deref(), 0)),
+            LocatorStrategy::Role {
+                role,
+                name,
+                exact: _,
+            } => Ok(self.role_to_js(role, name.as_deref(), 0)),
 
             LocatorStrategy::Text { text, exact } => {
                 if *exact {
@@ -590,9 +582,15 @@ impl Locator {
 
             LocatorStrategy::AltText { text, exact } => {
                 if *exact {
-                    Ok(format!(r#"document.querySelector('[alt="{}"]')"#, escape_js_string(text)))
+                    Ok(format!(
+                        r#"document.querySelector('[alt="{}"]')"#,
+                        escape_js_string(text)
+                    ))
                 } else {
-                    Ok(format!(r#"document.querySelector('[alt*="{}"]')"#, escape_js_string(text)))
+                    Ok(format!(
+                        r#"document.querySelector('[alt*="{}"]')"#,
+                        escape_js_string(text)
+                    ))
                 }
             }
 
@@ -615,9 +613,10 @@ impl Locator {
                 escape_js_string(test_id)
             )),
 
-            LocatorStrategy::Css(selector) => {
-                Ok(format!("document.querySelector('{}')", escape_js_string(selector)))
-            }
+            LocatorStrategy::Css(selector) => Ok(format!(
+                "document.querySelector('{}')",
+                escape_js_string(selector)
+            )),
 
             LocatorStrategy::XPath(xpath) => Ok(format!(
                 r#"document.evaluate('{}', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue"#,
@@ -626,14 +625,22 @@ impl Locator {
 
             LocatorStrategy::Nth { base, index } => {
                 let base_js = match &base.strategy {
-                    LocatorStrategy::Css(s) => format!("document.querySelectorAll('{}')", escape_js_string(s)),
-                    _ => return Err(AgentError::InvalidCommand {
-                        message: "nth() only supported for CSS selectors in JS mode".to_string(),
-                    }),
+                    LocatorStrategy::Css(s) => {
+                        format!("document.querySelectorAll('{}')", escape_js_string(s))
+                    }
+                    _ => {
+                        return Err(AgentError::InvalidCommand {
+                            message: "nth() only supported for CSS selectors in JS mode"
+                                .to_string(),
+                        })
+                    }
                 };
 
                 if *index < 0 {
-                    Ok(format!("(() => {{ const els = {}; return els[els.length - 1]; }})()", base_js))
+                    Ok(format!(
+                        "(() => {{ const els = {}; return els[els.length - 1]; }})()",
+                        base_js
+                    ))
                 } else {
                     Ok(format!("{}[{}]", base_js, index))
                 }

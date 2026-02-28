@@ -66,7 +66,9 @@ impl RefId {
     /// Check if a string looks like a ref.
     pub fn is_ref(s: &str) -> bool {
         let s = s.trim();
-        let Some(id) = s.strip_prefix('@') else { return false };
+        let Some(id) = s.strip_prefix('@') else {
+            return false;
+        };
         id.starts_with('e') && id.len() > 1 && id[1..].chars().all(|c| c.is_ascii_digit())
     }
 
@@ -203,7 +205,11 @@ impl RefInfo {
         // Prefer role-based locator
         if let Some(ref name) = self.name {
             if !name.is_empty() {
-                return format!("role={}[name=\"{}\"]", self.role, escape_locator_value(name));
+                return format!(
+                    "role={}[name=\"{}\"]",
+                    self.role,
+                    escape_locator_value(name)
+                );
             }
         }
 
@@ -302,7 +308,9 @@ impl RefMap {
 
     /// Iterate over all refs and their info.
     pub fn iter(&self) -> impl Iterator<Item = (&RefId, &RefInfo)> {
-        self.refs.iter().filter_map(|id| self.info.get(id).map(|info| (id, info)))
+        self.refs
+            .iter()
+            .filter_map(|id| self.info.get(id).map(|info| (id, info)))
     }
 
     /// Find refs matching a predicate.
