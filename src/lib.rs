@@ -109,3 +109,6 @@ pub use crate::profiles::*;
 
 // Re-export useful CDP types for request interception
 pub use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+
+pub mod agent_browser;
+pub use crate::agent_browser::AgentPage;
