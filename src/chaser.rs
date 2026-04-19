@@ -337,11 +337,9 @@ impl ChaserPage {
         let start = { *self.mouse_pos.lock().unwrap() };
         let end = Point { x, y };
 
-        let mut rng = rand::thread_rng();
-
         // Target Selection Jitter: don't land exactly on the pixel
-        let jitter_x = rng.gen_range(-2.0..2.0);
-        let jitter_y = rng.gen_range(-2.0..2.0);
+        let jitter_x = rand::thread_rng().gen_range(-2.0..2.0);
+        let jitter_y = rand::thread_rng().gen_range(-2.0..2.0);
         let target_with_jitter = Point {
             x: end.x + jitter_x,
             y: end.y + jitter_y,
@@ -359,7 +357,8 @@ impl ChaserPage {
                 .map_err(|e| anyhow!("{}", e))?;
             *self.mouse_pos.lock().unwrap() = point;
             // Tiny delay to simulate physical movement
-            tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(5..15))).await;
+            let delay = rand::thread_rng().gen_range(5..15);
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
 
         Ok(())
@@ -382,22 +381,23 @@ impl ChaserPage {
     /// - Small random delay before clicking (50-150ms)
     /// - Variable click duration
     pub async fn click_human(&self, x: f64, y: f64) -> Result<()> {
-        let mut rng = rand::thread_rng();
-
         // Move to target with bezier curve
         self.move_mouse_human(x, y).await?;
 
         // Small pause before clicking (humans don't click instantly after arriving)
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
+        let delay1 = rand::thread_rng().gen_range(50..150);
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay1)).await;
 
         // Click
         self.click().await?;
 
         // Small pause after clicking
-        tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
+        let delay2 = rand::thread_rng().gen_range(30..80);
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay2)).await;
 
         Ok(())
     }
+
 
     /// Type text with human-like delays between keystrokes.
     ///
@@ -420,7 +420,6 @@ impl ChaserPage {
         min_delay_ms: u64,
         max_delay_ms: u64,
     ) -> Result<()> {
-        let mut rng = rand::thread_rng();
 
         for c in text.chars() {
             // Send keyDown with the character
@@ -447,11 +446,11 @@ impl ChaserPage {
                 .map_err(|e| anyhow!("{}", e))?;
 
             // Random delay between keystrokes
-            let delay = rng.gen_range(min_delay_ms..max_delay_ms);
+            let delay = rand::thread_rng().gen_range(min_delay_ms..max_delay_ms);
 
             // 5% chance of a longer "thinking" pause
-            let actual_delay = if rng.gen_bool(0.05) {
-                rng.gen_range(200..400)
+            let actual_delay = if rand::thread_rng().gen_bool(0.05) {
+                rand::thread_rng().gen_range(200..400)
             } else {
                 delay
             };
