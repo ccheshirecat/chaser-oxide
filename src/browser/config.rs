@@ -457,7 +457,7 @@ impl BrowserConfig {
 
 /// These are passed to the Chrome binary by default.
 /// Via https://github.com/puppeteer/puppeteer/blob/4846b8723cf20d3551c0d755df394cc5e0c82a94/src/node/Launcher.ts#L157
-static DEFAULT_ARGS: [ArgConst; 24] = [
+static DEFAULT_ARGS: [ArgConst; 23] = [
     ArgConst::key("disable-background-networking"),
     ArgConst::values(
         "enable-features",
@@ -480,7 +480,6 @@ static DEFAULT_ARGS: [ArgConst; 24] = [
     ArgConst::values("force-color-profile", &["srgb"]),
     ArgConst::key("metrics-recording-only"),
     ArgConst::key("no-first-run"),
-    ArgConst::values("user-agent", &["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"]),
     ArgConst::values("password-store", &["basic"]),
     ArgConst::key("use-mock-keychain"),
     ArgConst::values("enable-blink-features", &["IdleDetection"]),
