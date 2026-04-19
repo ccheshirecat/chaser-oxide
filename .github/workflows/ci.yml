@@ -65,6 +65,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Chromium
+        run: sudo apt-get update && sudo apt-get install -y chromium-browser
       - run: RUST_TEST_THREADS=1 cargo test --test '*'
 
   test-fetcher:
