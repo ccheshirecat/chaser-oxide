@@ -28,7 +28,7 @@ Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-chaser-oxide = "0.2.2"
+chaser-oxide = "0.2.3"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 anyhow = "1.0.102"
