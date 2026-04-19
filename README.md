@@ -4,17 +4,19 @@
 [![Documentation](https://docs.rs/chaser-oxide/badge.svg)](https://docs.rs/chaser-oxide)
 [![License](https://img.shields.io/crates/l/chaser-oxide.svg)](https://github.com/ccheshirecat/chaser-oxide)
 
-**A Rust-based fork of `chromiumoxide` modified for hardened browser automation.**
+**A Rust-based fork of `chromiumoxide` for hardened, undetectable browser automation.**
 
-chaser-oxide is an experimental fork of the `chromiumoxide` library. It incorporates modifications to the core Chrome DevTools Protocol (CDP) client and high-level interaction utilities to reduce the footprint of automated browser sessions.
+chaser-oxide modifies the Chrome DevTools Protocol (CDP) client at the transport and protocol layer to reduce the detection footprint of automated browser sessions. The default profile auto-detects your host OS, Chrome version, and RAM — no hardcoded Windows spoofing out of the box.
 
 ## Features
 
 - **Protocol-Level Stealth**: Patches CDP at the transport layer, not via JavaScript wrappers
-- **Fingerprint Profiles**: Pre-configured Windows, Linux, macOS profiles with consistent hardware fingerprints
-- **Human Interaction Engine**: Physics-based mouse movements and realistic typing patterns
-- **Request Interception**: Built-in request modification and blocking capabilities
-- **Low Memory Footprint**: ~50-100MB vs ~500MB+ for Node.js alternatives
+- **Native Profile**: Auto-detects host OS, real Chrome version, and system RAM by default
+- **Fingerprint Profiles**: Pre-configured Windows, Linux, macOS profiles with consistent hardware fingerprints for explicit OS spoofing
+- **Client Hints Sync**: Full `UserAgentMetadata` via `Emulation.setUserAgentOverride` so `Sec-CH-UA-*` headers match the spoofed UA
+- **Human Interaction Engine**: Physics-based Bezier mouse movements and realistic typing patterns
+- **Request Interception**: Built-in request modification and blocking
+- **Low Memory Footprint**: ~50–100MB vs ~500MB+ for Node.js alternatives
 
 ## Installation
 
@@ -22,87 +24,167 @@ chaser-oxide is an experimental fork of the `chromiumoxide` library. It incorpor
 cargo add chaser-oxide tokio futures
 ```
 
-Or add to your `Cargo.toml`:
+Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-chaser-oxide = "0.1"
+chaser-oxide = "0.2.1"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
+anyhow = "1.0.102"
+serde_json = "1.0.149"
 ```
 
 ## Requirements
 
-- Rust 1.75+
+- Rust 1.85+
 - Chrome/Chromium browser installed
 - Supported platforms: Windows, macOS, Linux
 
 ## Quick Start
 
+### Native Profile (recommended)
+
+Uses your real OS, real Chrome version, and real RAM. Just strips HeadlessChrome from the UA.
+
 ```rust
-use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile};
+use chaser_oxide::{Browser, BrowserConfig, ChaserPage};
+use futures::StreamExt;
+use serde_json::Value;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let (browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .new_headless_mode()
+            .build()
+            .map_err(|e| anyhow::anyhow!(e))?,
+    )
+    .await?;
+
+    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
+
+    let page = browser.new_page("about:blank").await?;
+    let chaser = ChaserPage::new(page);
+
+    // Reads Chrome version from the live browser via CDP — accurate even
+    // when using chromiumoxide_fetcher's downloaded binary
+    chaser.apply_native_profile().await?;
+
+    chaser.goto("https://example.com").await?;
+    let title: Option<Value> = chaser.evaluate("document.title").await?;
+    println!("{:?}", title);
+
+    Ok(())
+}
+```
+
+### Explicit OS Spoofing
+
+Opt into a specific profile when you need to appear as a different OS:
+
+```rust
+use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile, Gpu};
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 1. Create a fingerprint profile
-    let profile = ChaserProfile::windows().build();
-    
-    // 2. Launch browser
+    let profile = ChaserProfile::windows()
+        .chrome_version(131)
+        .gpu(Gpu::NvidiaRTX3080)
+        .memory_gb(16)
+        .cpu_cores(8)
+        .locale("en-US")
+        .timezone("America/New_York")
+        .screen(1920, 1080)
+        .build();
+
     let (browser, mut handler) = Browser::launch(
-        BrowserConfig::builder().build()?
-    ).await?;
+        BrowserConfig::builder()
+            .build()
+            .map_err(|e| anyhow::anyhow!(e))?,
+    )
+    .await?;
 
-    tokio::spawn(async move {
-        while let Some(_) = handler.next().await {}
-    });
+    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
 
-    // 3. Create page and wrap in ChaserPage
     let page = browser.new_page("about:blank").await?;
     let chaser = ChaserPage::new(page);
 
-    // 4. Apply profile (sets UA + injects stealth scripts) - BEFORE navigation
+    // Apply BEFORE navigation
     chaser.apply_profile(&profile).await?;
 
-    // 5. Navigate to target
     chaser.goto("https://example.com").await?;
-
-    // 6. Execute JS safely (stealth - no Runtime.enable leak)
-    let title: Option<String> = chaser.evaluate("document.title").await?;
-
-    // 7. Use human-like interaction methods
-    chaser.move_mouse_human(400.0, 300.0).await?;
-    chaser.click_human(500.0, 400.0).await?;
-    chaser.type_text("Search query").await?;
-
     Ok(())
 }
 ```
 
 ## API Reference
 
-### ChaserProfile Builder
+### ChaserPage
 
-Create customized browser fingerprint profiles:
+```rust
+impl ChaserPage {
+    fn new(page: Page) -> Self;
+
+    // Profile — call BEFORE navigation
+    async fn apply_native_profile(&self) -> Result<()>;
+    async fn apply_profile(&self, profile: &ChaserProfile) -> Result<()>;
+
+    // Navigation
+    async fn goto(&self, url: &str) -> Result<()>;
+    async fn content(&self) -> Result<String>;
+    async fn url(&self) -> Result<Option<String>>;
+
+    // JS evaluation (stealth — uses isolated world, no Runtime.enable leak)
+    async fn evaluate(&self, script: &str) -> Result<Option<Value>>;
+
+    // Human-like mouse (Bezier curves with acceleration)
+    async fn move_mouse_human(&self, x: f64, y: f64) -> Result<()>;
+    async fn click_human(&self, x: f64, y: f64) -> Result<()>;
+    async fn scroll_human(&self, delta_y: i32) -> Result<()>;
+
+    // Typing
+    async fn type_text(&self, text: &str) -> Result<()>;
+    async fn type_text_with_typos(&self, text: &str) -> Result<()>;
+    async fn press_key(&self, key: &str) -> Result<()>;
+    async fn press_enter(&self) -> Result<()>;
+    async fn press_tab(&self) -> Result<()>;
+
+    // Request interception
+    async fn enable_request_interception(&self, pattern: &str, resource_type: Option<ResourceType>) -> Result<()>;
+    async fn disable_request_interception(&self) -> Result<()>;
+    async fn fulfill_request_html(&self, request_id: RequestId, html: &str, status: u16) -> Result<()>;
+    async fn continue_request(&self, request_id: impl Into<String>) -> Result<()>;
+
+    // Escape hatch — raw_page().evaluate() triggers Runtime.enable detection!
+    fn raw_page(&self) -> &Page;
+}
+```
+
+### ChaserProfile Builder
 
 ```rust
 use chaser_oxide::{ChaserProfile, Gpu};
 
-// Quick presets
-let windows = ChaserProfile::windows().build();
-let linux = ChaserProfile::linux().build();
-let mac_arm = ChaserProfile::macos_arm().build();
-let mac_intel = ChaserProfile::macos_intel().build();
+// Auto-detect from host environment
+let native  = ChaserProfile::native().build();
 
-// Custom profile with builder
+// Explicit OS presets
+let windows    = ChaserProfile::windows().build();
+let linux      = ChaserProfile::linux().build();
+let mac_arm    = ChaserProfile::macos_arm().build();
+let mac_intel  = ChaserProfile::macos_intel().build();
+
+// Builder options (chain onto any preset)
 let custom = ChaserProfile::windows()
-    .chrome_version(130)           // Chrome version for UA
-    .gpu(Gpu::NvidiaRTX4080)       // WebGL renderer
-    .memory_gb(32)                 // navigator.deviceMemory
-    .cpu_cores(16)                 // navigator.hardwareConcurrency
-    .locale("de-DE")               // navigator.language
-    .timezone("Europe/Berlin")     // Intl timezone
-    .screen_size(2560, 1440)       // screen.width/height
+    .chrome_version(131)
+    .gpu(Gpu::NvidiaRTX4080)
+    .memory_gb(16)
+    .cpu_cores(8)
+    .locale("de-DE")
+    .timezone("Europe/Berlin")
+    .screen(2560, 1440)
     .build();
 ```
 
@@ -123,46 +205,13 @@ pub enum Gpu {
 }
 ```
 
-### ChaserPage Methods
-
-```rust
-impl ChaserPage {
-    // Profile
-    async fn apply_profile(&self, profile: &ChaserProfile) -> Result<()>;
-    
-    // Safe Page Operations
-    async fn goto(&self, url: &str) -> Result<()>;
-    async fn content(&self) -> Result<String>;
-    async fn url(&self) -> Result<Option<String>>;
-    async fn evaluate(&self, script: &str) -> Result<Option<Value>>;  // Stealth!
-    
-    // Human-like Mouse Movement (Bezier curves)
-    async fn move_mouse_human(&self, x: f64, y: f64) -> Result<()>;
-    async fn click_human(&self, x: f64, y: f64) -> Result<()>;
-    async fn scroll_human(&self, delta_y: i32) -> Result<()>;
-    
-    // Human-like Typing
-    async fn type_text(&self, text: &str) -> Result<()>;
-    async fn type_text_with_typos(&self, text: &str) -> Result<()>;
-    
-    // Request Interception
-    async fn enable_request_interception(&self, pattern: &str, resource_type: Option<ResourceType>) -> Result<()>;
-    async fn disable_request_interception(&self) -> Result<()>;
-    async fn fulfill_request_html(&self, request_id: RequestId, html: &str, status: u16) -> Result<()>;
-    async fn continue_request(&self, request_id: RequestId) -> Result<()>;
-    
-    // Access underlying Page (use raw_page().evaluate() with caution - triggers detection!)
-    fn raw_page(&self) -> &Page;
-}
-```
-
 ### BrowserConfig
 
 ```rust
 let config = BrowserConfig::builder()
-    .chrome_executable("/path/to/chrome")  // Custom Chrome path
-    .with_head()                           // Show browser window (default)
-    .headless()                            // Run headless
+    .chrome_executable("/path/to/chrome")
+    .new_headless_mode()   // Headless (Chrome's new headless — less detectable)
+    .with_head()           // Headed window
     .viewport(Viewport {
         width: 1920,
         height: 1080,
@@ -174,60 +223,52 @@ let config = BrowserConfig::builder()
     .build()?;
 ```
 
-## Core Modifications
+## Stealth Details
 
-### 1. Protocol-Level Stealth
+### What `apply_native_profile()` does
 
-Standard CDP clients trigger internal browser signals during initialization. chaser-oxide modifies these behaviors:
+1. Reads the live Chrome version from the browser via `Browser.getVersion` CDP
+2. Detects host OS (including arm64 vs x86 on macOS) and system RAM
+3. Calls `Emulation.setUserAgentOverride` with full `UserAgentMetadata` — this controls both the `User-Agent` header **and** all `Sec-CH-UA-*` client hint headers
+4. Injects bootstrap JS via `Page.createIsolatedWorld` before first navigation
 
-* **`Runtime.enable` Mitigation**: Uses `Page.createIsolatedWorld` to execute scripts in a secondary environment that bypasses detection vectors.
-* **Utility World Renaming**: The default "Puppeteer" or "Chromiumoxide" utility world names have been neutralized.
+### What `enable_stealth_mode()` does (Page-level)
 
-### 2. Fingerprint Synchronization
+Applies basic automation signal removal without any OS or version spoofing:
+- Removes CDP automation markers (`cdc_`, `$cdc_`, `__webdriver`, etc.)
+- Sets `navigator.webdriver = false`
+- Replaces "HeadlessChrome" with "Chrome" in the UA
 
-Anti-bot systems look for discrepancies between the reported User-Agent and the browser's execution environment.
+### JavaScript stealth injected by bootstrap script
 
-* **State Management**: Injects scripts during document creation to synchronize `navigator.platform`, `WebGL` vendor/renderer strings, and hardware concurrency values.
-* **Consistency Enforcement**: Values are enforced via the `IsolatedWorld` mechanism to ensure they are available before the target site's scripts execute.
+| Property | Behavior |
+|---|---|
+| `navigator.webdriver` | `false` (set on prototype, survives `getOwnPropertyNames`) |
+| `navigator.platform` | Matches profile OS (e.g. `"Win32"`, `"MacIntel"`) |
+| `navigator.hardwareConcurrency` | Profile CPU cores |
+| `navigator.deviceMemory` | Profile RAM (spec-valid discrete value) |
+| `navigator.userAgentData` | Full UA-CH object with brands, `getHighEntropyValues()` |
+| `navigator.plugins` | 5-plugin fake set |
+| WebGL vendor/renderer | Profile GPU strings |
+| `window.chrome` | Full runtime object with `connect()`, `sendMessage()`, `csi()`, `loadTimes()`, `app` |
+| CDP markers | Removed from `window` |
 
-### 3. Human Interaction Simulation
-
-* **Bezier Mouse Curves**: Mouse movements follow randomized Bezier paths with acceleration and deceleration profiles.
-* **Typing Physics**: Keypresses include variable inter-character delays and optional typo-correction simulation.
-
-### 4. JavaScript-Level Stealth
-
-The `ChaserProfile.bootstrap_script()` injects comprehensive stealth at page load:
-
-| Feature | What It Does |
-|---------|-------------|
-| CDP Marker Cleanup | Removes `cdc_`, `$cdc_`, `__webdriver`, `__selenium` markers |
-| `navigator.webdriver` | Set to `false` (not deleted) |
-| `navigator.platform` | Matches profile OS (e.g., "Win32") |
-| `navigator.hardwareConcurrency` | Profile-configurable CPU cores |
-| `navigator.deviceMemory` | Profile-configurable RAM |
-| WebGL Spoofing | Custom GPU vendor/renderer strings |
-| Client Hints | `navigator.userAgentData` with matching brands |
-| `window.chrome` | Complete runtime object with `connect()`, `sendMessage()` |
-| `chrome.csi()` | Chrome Speed Index mock |
-| `chrome.loadTimes()` | Deprecated API mock (still checked by some sites) |
-| `chrome.app` | Chrome app object mock |
-
-**Tested against**: Cloudflare Turnstile, bot.sannysoft.com, CreepJS
+**Tested against**: Cloudflare Turnstile, Cloudflare WAF, bot.sannysoft.com, areyouheadless, deviceandbrowserinfo.com, CreepJS
 
 ## Technical Comparison
 
 | Metric | chaser-oxide | Node.js Alternatives |
-| --- | --- | --- |
+|---|---|---|
 | **Language** | Rust | JavaScript |
-| **Memory Footprint** | ~50MB - 100MB (per process) | ~500MB+ (per process) |
-| **Transport Patching** | Protocol-level (Internal Fork) | High-level (Wrapper/Plugin) |
+| **Memory Footprint** | ~50–100MB | ~500MB+ |
+| **Transport Patching** | Protocol-level (internal fork) | High-level (wrapper/plugin) |
+| **Default Profile** | Native host OS + Chrome version | Usually hardcoded |
 
 ## Dependencies
 
-- [chromiumoxide](https://github.com/mattsse/chromiumoxide) - Base CDP client (forked)
-- [tokio](https://tokio.rs) - Async runtime
-- [futures](https://docs.rs/futures) - Async utilities
+- [chromiumoxide](https://github.com/mattsse/chromiumoxide) — Base CDP client (forked)
+- [tokio](https://tokio.rs) — Async runtime
+- [futures](https://docs.rs/futures) — Async utilities
 
 ## Acknowledgements
 
@@ -237,5 +278,5 @@ This project is a specialized fork of **[chromiumoxide](https://github.com/matts
 
 Licensed under either of:
 
-* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-* MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
