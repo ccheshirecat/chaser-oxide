@@ -57,14 +57,24 @@ impl Page {
         Ok(())
     }
 
-    /// Applies stealth patches to hide automation signals without spoofing the OS or
-    /// browser version. The real User-Agent and platform are preserved so fingerprint
-    /// scanners see a consistent, genuine identity.
+    /// Applies stealth patches to hide automation signals.
+    ///
+    /// If the browser is running in headless mode the UA will contain
+    /// `HeadlessChrome` — this replaces it with `Chrome` so the UA looks
+    /// identical to a headed session. The OS and version are never changed.
     ///
     /// For full identity spoofing (different OS, GPU, UA) use
     /// `ChaserPage::apply_profile()` instead.
     pub async fn enable_stealth_mode(&self) -> Result<()> {
-        self._enable_stealth_mode().await
+        self._enable_stealth_mode().await?;
+
+        let ua = self.user_agent().await?;
+        if ua.contains("HeadlessChrome") {
+            let headed_ua = ua.replace("HeadlessChrome", "Chrome");
+            self.set_user_agent(&headed_ua).await?;
+        }
+
+        Ok(())
     }
 
     /// Changes your user_agent with a custom agent, removes the `navigator.webdriver` property
