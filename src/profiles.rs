@@ -113,7 +113,7 @@ impl Os {
     /// Returns the UA-CH platformVersion string
     pub fn platform_version(&self) -> &'static str {
         match self {
-            Os::Windows => "15.0.0",             // Windows 11
+            Os::Windows => "15.0.0",                   // Windows 11
             Os::MacOSIntel | Os::MacOSArm => "15.3.1", // macOS Sequoia
             Os::Linux => "",
         }
@@ -631,9 +631,13 @@ pub fn detect_current_os() -> Os {
         if is_arm { Os::MacOSArm } else { Os::MacOSIntel }
     }
     #[cfg(target_os = "windows")]
-    { Os::Windows }
+    {
+        Os::Windows
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    { Os::Linux }
+    {
+        Os::Linux
+    }
 }
 
 /// Try to detect the installed Chrome major version from the system binary.

@@ -1,17 +1,17 @@
 use crate::page::Page;
 use crate::profiles::ChaserProfile;
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
+use anyhow::{Result, anyhow};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
+    SetUserAgentOverrideParams as EmulationSetUserAgentOverrideParams, UserAgentBrandVersion,
+    UserAgentMetadata,
+};
 use chromiumoxide_cdp::cdp::browser_protocol::fetch::{
     ContinueRequestParams, DisableParams as FetchDisableParams, EnableParams as FetchEnableParams,
     FulfillRequestParams, HeaderEntry, RequestPattern,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType,
-};
-use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
-    SetUserAgentOverrideParams as EmulationSetUserAgentOverrideParams, UserAgentBrandVersion,
-    UserAgentMetadata,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
 use chromiumoxide_cdp::cdp::browser_protocol::page::{
@@ -202,11 +202,7 @@ impl ChaserPage {
     ///
     /// Call this BEFORE navigating to the target site.
     pub async fn apply_native_profile(&self) -> Result<()> {
-        let ua = self
-            .page
-            .user_agent()
-            .await
-            .map_err(|e| anyhow!("{}", e))?;
+        let ua = self.page.user_agent().await.map_err(|e| anyhow!("{}", e))?;
         let chrome_version = parse_chrome_major(&ua).unwrap_or(131);
         let profile = crate::profiles::ChaserProfile::native()
             .chrome_version(chrome_version)
@@ -460,7 +456,6 @@ impl ChaserPage {
         Ok(())
     }
 
-
     /// Type text with human-like delays between keystrokes.
     ///
     /// Simulates realistic typing with:
@@ -482,7 +477,6 @@ impl ChaserPage {
         min_delay_ms: u64,
         max_delay_ms: u64,
     ) -> Result<()> {
-
         for c in text.chars() {
             // Send keyDown with the character
             let key_down = DispatchKeyEventParams::builder()

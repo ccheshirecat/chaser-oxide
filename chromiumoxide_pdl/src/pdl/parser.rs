@@ -245,7 +245,10 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 .as_mut()
                 .ok_or_else(|| format_err!("line {}: version must be declared first", line_num))?;
             v.major = caps.get(1).unwrap().as_str().parse().map_err(|_| {
-                format_err!("line {}: major version number is invalid or too large", line_num)
+                format_err!(
+                    "line {}: major version number is invalid or too large",
+                    line_num
+                )
             })?;
             continue;
         }
@@ -255,7 +258,10 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 .as_mut()
                 .ok_or_else(|| format_err!("line {}: missing version declaration", line_num))?;
             v.minor = caps.get(1).unwrap().as_str().parse().map_err(|_| {
-                format_err!("line {}: minor version number is invalid or too large", line_num)
+                format_err!(
+                    "line {}: minor version number is invalid or too large",
+                    line_num
+                )
             })?;
             continue;
         }

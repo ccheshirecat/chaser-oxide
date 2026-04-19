@@ -8,8 +8,7 @@ use futures::{SinkExt, StreamExt, stream};
 use chromiumoxide_cdp::cdp::browser_protocol::dom::*;
 use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
     MediaFeature, SetEmulatedMediaParams, SetGeolocationOverrideParams, SetLocaleOverrideParams,
-    SetTimezoneOverrideParams,
-    SetUserAgentOverrideParams as EmulationSetUserAgentOverrideParams,
+    SetTimezoneOverrideParams, SetUserAgentOverrideParams as EmulationSetUserAgentOverrideParams,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::network::{
     Cookie, CookieParam, DeleteCookiesParams, GetCookiesParams, SetCookiesParams,
@@ -1471,7 +1470,7 @@ impl ScreenshotParams {
                 .cdp_params
                 .format
                 .as_ref()
-                .map_or(true, |f| f == &CaptureScreenshotFormat::Png)
+                .is_none_or(|f| f == &CaptureScreenshotFormat::Png)
     }
 }
 
