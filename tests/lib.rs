@@ -20,7 +20,11 @@ pub async fn test<T>(test: T)
 where
     T: for<'a> AsyncFnOnce(&'a mut Browser),
 {
-    test_config(BrowserConfig::builder().build().unwrap(), test).await;
+    test_config(
+        BrowserConfig::builder().new_headless_mode().build().unwrap(),
+        test,
+    )
+    .await;
 }
 
 pub async fn test_config<T>(config: BrowserConfig, test: T)
