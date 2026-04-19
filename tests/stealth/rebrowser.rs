@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chromiumoxide::{BrowserConfig, Page};
+use chaser_oxide::{BrowserConfig, Page};
 use serde::Deserialize;
 use tokio::time::sleep;
 
