@@ -45,11 +45,8 @@ pub struct Page {
 }
 
 impl Page {
-    /// Removes the `navigator.webdriver` property
-    /// changes permissions, pluggins rendering contexts and the `window.chrome`
-    /// property to make it harder to detect the scraper as a bot
+    /// Core stealth patches: hides automation signals without touching UA or OS identity.
     async fn _enable_stealth_mode(&self) -> Result<()> {
-        self.hide_hardware_harmony().await?; // MUST be first - establishes consistent identity
         self.hide_webdriver().await?;
         self.hide_permissions().await?;
         self.hide_plugins().await?;
@@ -60,41 +57,14 @@ impl Page {
         Ok(())
     }
 
-    /// Changes your user_agent, removes the `navigator.webdriver` property
-    /// changes permissions, pluggins rendering contexts and the `window.chrome`
-    /// property to make it harder to detect the scraper as a bot
+    /// Applies stealth patches to hide automation signals without spoofing the OS or
+    /// browser version. The real User-Agent and platform are preserved so fingerprint
+    /// scanners see a consistent, genuine identity.
+    ///
+    /// For full identity spoofing (different OS, GPU, UA) use
+    /// `ChaserPage::apply_profile()` instead.
     pub async fn enable_stealth_mode(&self) -> Result<()> {
-        self._enable_stealth_mode().await?;
-        self.hide_client_hints().await?;
-        self.set_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36").await?;
-
-        Ok(())
-    }
-
-    /// Patches navigator.userAgentData to hide HeadlessChrome
-    async fn hide_client_hints(&self) -> Result<(), CdpError> {
-        self.execute(AddScriptToEvaluateOnNewDocumentParams {
-            source: r#"
-                Object.defineProperty(Navigator.prototype, 'userAgentData', {
-                    get: () => ({
-                        brands: [
-                            { brand: "Google Chrome", version: "129" },
-                            { brand: "Chromium", version: "129" },
-                            { brand: "Not=A?Brand", version: "24" }
-                        ],
-                        mobile: false,
-                        platform: "Windows"
-                    }),
-                    configurable: true
-                });
-            "#
-            .to_string(),
-            world_name: None,
-            include_command_line_api: None,
-            run_immediately: None,
-        })
-        .await?;
-        Ok(())
+        self._enable_stealth_mode().await
     }
 
     /// Changes your user_agent with a custom agent, removes the `navigator.webdriver` property
@@ -105,38 +75,6 @@ impl Page {
         if !ua.is_empty() {
             self.set_user_agent(ua).await?;
         }
-        Ok(())
-    }
-
-    /// **Hardware Harmony**: Establishes a consistent Windows/NVIDIA identity.
-    ///
-    /// Fixes the "Platform Chimera" issue where User-Agent says Windows but
-    /// navigator.platform says MacIntel. This is a critical anti-detection fix.
-    async fn hide_hardware_harmony(&self) -> Result<(), CdpError> {
-        self.execute(AddScriptToEvaluateOnNewDocumentParams {
-            source: r#"
-                // 1. Fix Platform - MUST match Windows User-Agent (on prototype)
-                Object.defineProperty(Navigator.prototype, 'platform', { 
-                    get: () => 'Win32',
-                    configurable: true
-                });
-
-                // 2. Align Hardware specs for a "typical gamer PC" profile (on prototype)
-                Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { 
-                    get: () => 8,
-                    configurable: true 
-                });
-                Object.defineProperty(Navigator.prototype, 'deviceMemory', { 
-                    get: () => 8,
-                    configurable: true
-                });
-            "#
-            .to_string(),
-            world_name: None,
-            include_command_line_api: None,
-            run_immediately: None,
-        })
-        .await?;
         Ok(())
     }
 
