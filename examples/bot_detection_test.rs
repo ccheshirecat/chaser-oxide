@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile};
+use chaser_oxide::{Browser, BrowserConfig, ChaserPage};
 use futures::StreamExt;
 use serde_json::Value;
 use std::time::Duration;
@@ -8,9 +8,6 @@ use std::time::Duration;
 async fn main() -> Result<()> {
     println!("🤖 HEADLESS BOT DETECTION TEST");
     println!("================================\n");
-
-    // Create Windows profile
-    let profile = ChaserProfile::windows().build();
 
     // Launch HEADLESS browser (use new_headless_mode())
     let (browser, mut handler) = Browser::launch(
@@ -23,11 +20,12 @@ async fn main() -> Result<()> {
 
     tokio::spawn(async move { while let Some(_) = handler.next().await {} });
 
-    // Create page and apply profile
+    // Create page and apply native profile (reads actual Chrome version via CDP,
+    // detects host OS and RAM — no hardcoded Windows/version spoofing)
     let page = browser.new_page("about:blank").await?;
     let chaser = ChaserPage::new(page);
-    chaser.apply_profile(&profile).await?;
-    println!("✅ Profile applied in HEADLESS mode\n");
+    chaser.apply_native_profile().await?;
+    println!("✅ Native profile applied in HEADLESS mode\n");
 
     // ========== TEST 1: Sannysoft Bot Detection ==========
     println!("📊 TEST 1: Sannysoft Bot Detector");

@@ -9,10 +9,10 @@ use chromiumoxide_cdp::cdp::browser_protocol::dom::*;
 use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
     MediaFeature, SetEmulatedMediaParams, SetGeolocationOverrideParams, SetLocaleOverrideParams,
     SetTimezoneOverrideParams,
+    SetUserAgentOverrideParams as EmulationSetUserAgentOverrideParams,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::network::{
     Cookie, CookieParam, DeleteCookiesParams, GetCookiesParams, SetCookiesParams,
-    SetUserAgentOverrideParams,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::page::*;
 use chromiumoxide_cdp::cdp::browser_protocol::performance::{GetMetricsParams, Metric};
@@ -512,9 +512,13 @@ impl Page {
     }
 
     /// Allows overriding user agent with the given string.
+    ///
+    /// Uses `Emulation.setUserAgentOverride` so that Sec-CH-UA-* Client Hint
+    /// headers are also updated. Pass a full
+    /// `EmulationSetUserAgentOverrideParams` when you need to set metadata.
     pub async fn set_user_agent(
         &self,
-        params: impl Into<SetUserAgentOverrideParams>,
+        params: impl Into<EmulationSetUserAgentOverrideParams>,
     ) -> Result<&Self> {
         self.execute(params.into()).await?;
         Ok(self)

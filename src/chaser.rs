@@ -10,11 +10,10 @@ use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType,
 };
 use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
-    UserAgentBrandVersion, UserAgentMetadata,
+    SetUserAgentOverrideParams as EmulationSetUserAgentOverrideParams, UserAgentBrandVersion,
+    UserAgentMetadata,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::network::{
-    ResourceType, SetUserAgentOverrideParams,
-};
+use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
 use chromiumoxide_cdp::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CreateIsolatedWorldParams,
 };
@@ -169,7 +168,7 @@ impl ChaserPage {
         // Set UA + Sec-CH-UA-* headers together so they're always consistent
         self.page
             .execute(
-                SetUserAgentOverrideParams::builder()
+                EmulationSetUserAgentOverrideParams::builder()
                     .user_agent(profile.user_agent())
                     .accept_language(profile.locale().to_string())
                     .platform(profile.os().platform().to_string())
