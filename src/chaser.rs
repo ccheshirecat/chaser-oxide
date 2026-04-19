@@ -9,7 +9,12 @@ use chromiumoxide_cdp::cdp::browser_protocol::fetch::{
 use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType,
 };
-use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
+    UserAgentBrandVersion, UserAgentMetadata,
+};
+use chromiumoxide_cdp::cdp::browser_protocol::network::{
+    ResourceType, SetUserAgentOverrideParams,
+};
 use chromiumoxide_cdp::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CreateIsolatedWorldParams,
 };
@@ -132,13 +137,50 @@ impl ChaserPage {
     /// chaser.inner().goto("https://example.com").await?;
     /// ```
     pub async fn apply_profile(&self, profile: &ChaserProfile) -> Result<()> {
-        // 1. Set the HTTP User-Agent header
+        let ver = profile.chrome_version().to_string();
+        let full_ver = format!("{}.0.0.0", ver);
+
+        let brand = |name: &str, v: &str| UserAgentBrandVersion {
+            brand: name.to_string(),
+            version: v.to_string(),
+        };
+
+        let metadata = UserAgentMetadata {
+            brands: Some(vec![
+                brand("Google Chrome", &ver),
+                brand("Chromium", &ver),
+                brand("Not=A?Brand", "24"),
+            ]),
+            full_version_list: Some(vec![
+                brand("Google Chrome", &full_ver),
+                brand("Chromium", &full_ver),
+                brand("Not=A?Brand", "24.0.0.0"),
+            ]),
+            platform: profile.os().hints_platform().to_string(),
+            platform_version: profile.os().platform_version().to_string(),
+            architecture: profile.os().architecture().to_string(),
+            model: String::new(),
+            mobile: false,
+            bitness: Some("64".to_string()),
+            wow64: Some(false),
+            form_factors: None,
+        };
+
+        // Set UA + Sec-CH-UA-* headers together so they're always consistent
         self.page
-            .set_user_agent(&profile.user_agent())
+            .execute(
+                SetUserAgentOverrideParams::builder()
+                    .user_agent(profile.user_agent())
+                    .accept_language(profile.locale().to_string())
+                    .platform(profile.os().platform().to_string())
+                    .user_agent_metadata(metadata)
+                    .build()
+                    .map_err(|e| anyhow!("{}", e))?,
+            )
             .await
             .map_err(|e| anyhow!("{}", e))?;
 
-        // 2. Inject the bootstrap script to run on every new document
+        // Inject the bootstrap script to run on every new document
         self.page
             .execute(AddScriptToEvaluateOnNewDocumentParams {
                 source: profile.bootstrap_script(),
@@ -150,6 +192,27 @@ impl ChaserPage {
             .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
+    }
+
+    /// Apply a profile derived from the actual running browser.
+    ///
+    /// Reads the Chrome version from the connected browser via CDP so it's
+    /// always accurate — even when using chromiumoxide_fetcher's downloaded
+    /// binary whose version differs from any system Chrome installation.
+    /// OS and RAM are still detected from the host machine.
+    ///
+    /// Call this BEFORE navigating to the target site.
+    pub async fn apply_native_profile(&self) -> Result<()> {
+        let ua = self
+            .page
+            .user_agent()
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+        let chrome_version = parse_chrome_major(&ua).unwrap_or(131);
+        let profile = crate::profiles::ChaserProfile::native()
+            .chrome_version(chrome_version)
+            .build();
+        self.apply_profile(&profile).await
     }
 
     // ========== REQUEST INTERCEPTION API ==========
@@ -709,4 +772,13 @@ impl BezierPath {
 
         path
     }
+}
+
+/// Parse the Chrome major version out of a User-Agent string.
+/// Works for both `Chrome/131.0.0.0` and `HeadlessChrome/131.0.0.0`.
+fn parse_chrome_major(ua: &str) -> Option<u32> {
+    ua.split("Chrome/")
+        .nth(1)
+        .and_then(|s| s.split('.').next())
+        .and_then(|v| v.parse().ok())
 }
