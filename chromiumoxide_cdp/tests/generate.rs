@@ -35,8 +35,8 @@ fn generated_code_is_fresh() {
 }
 
 /// Check that the PDL files are up to date
-#[test]
-fn pdl_is_fresh() {
+#[tokio::test]
+async fn pdl_is_fresh() {
     const BASE_URL: &str = "https://raw.githubusercontent.com/ChromeDevTools/devtools-protocol";
 
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -48,12 +48,13 @@ fn pdl_is_fresh() {
         .unwrap_or_else(|_| dir.join("pdl/js_protocol.pdl"));
 
     let js_proto_old = fs::read_to_string(&js_proto).unwrap_or_default();
-    let js_proto_new = ureq::get(&format!(
+    let js_proto_new = reqwest::get(&format!(
         "{BASE_URL}/{CURRENT_REVISION}/pdl/js_protocol.pdl",
     ))
-    .call()
+    .await
     .unwrap()
-    .into_string()
+    .text()
+    .await
     .unwrap();
     assert!(js_proto_new.contains("The Chromium Authors"));
 
@@ -68,12 +69,13 @@ fn pdl_is_fresh() {
         .unwrap_or_else(|_| dir.join("pdl/browser_protocol.pdl"));
 
     let browser_proto_old = fs::read_to_string(&browser_proto).unwrap_or_default();
-    let browser_proto_new = ureq::get(&format!(
+    let browser_proto_new = reqwest::get(&format!(
         "{BASE_URL}/{CURRENT_REVISION}/pdl/browser_protocol.pdl"
     ))
-    .call()
+    .await
     .unwrap()
-    .into_string()
+    .text()
+    .await
     .unwrap();
     assert!(browser_proto_new.contains("The Chromium Authors"));
 
@@ -95,11 +97,13 @@ fn pdl_is_fresh() {
         let include_path = dir.join("pdl").join(include);
 
         let include_proto_old = fs::read_to_string(&include_path).unwrap_or_default();
-        let include_proto_new = ureq::get(&format!("{BASE_URL}/{CURRENT_REVISION}/pdl/{include}"))
-            .call()
-            .unwrap()
-            .into_string()
-            .unwrap();
+        let include_proto_new =
+            reqwest::get(&format!("{BASE_URL}/{CURRENT_REVISION}/pdl/{include}"))
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
         assert!(include_proto_new.contains("The Chromium Authors"));
 
         if include_proto_new != include_proto_old {

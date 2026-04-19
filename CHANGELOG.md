@@ -9,11 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Derive `Clone` for `Element`, `ScreenshotParams` and `ScreenshotParamsBuilder`
+
+## [0.9.1] 2026-02-25
+
+### Fixed
+
+- Invalid import when using zip0
+
+## [0.9.0] 2026-02-20
+
+### Breaking Changes
+
+- Removed async-std support
+
+### Changed
+
+- Updated edition to 2024
+- Bump fetcher chromium to `r1585606`
+- Bump CDP to `r1566079`
 - Use a struct `Arg` for arguments to combine flags automatically
+- Browser process no longer inherits stdout
+- Update `reqwest` to v0.13
+- Update `thiserror` to v2
+- Update `heck` to v0.5
+- Add support for `zip` v8 and make it default
 
 ### Added
 
 - Add `add_init_script` to `Page` for scripts before navigation
+- Add `click_with` to `Page` and `Element` for custom click behavior
 
 ## [0.8.0] 2025-11-28
 

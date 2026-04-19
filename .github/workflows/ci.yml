@@ -83,11 +83,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Check examples with default features
-        run: cargo check --examples --features tokio-runtime,bytes
-      - name: Check async-std examples
-        run: cargo check --examples --features async-std-runtime
-      - name: Check fetcher examples
-        run: |
-          cargo check --example fetcher --features _fetcher-native-tokio
-          cargo check --example fetcher-async-std --features async-std-runtime,_fetcher-native-async-std
+      - name: Check examples
+        run: cargo check --examples --features fetcher,zip8,rustls

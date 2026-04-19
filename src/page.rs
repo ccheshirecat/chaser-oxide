@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use futures::channel::mpsc::unbounded;
 use futures::channel::oneshot::channel as oneshot_channel;
-use futures::{stream, SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt, stream};
 
 use chromiumoxide_cdp::cdp::browser_protocol::dom::*;
 use chromiumoxide_cdp::cdp::browser_protocol::emulation::{
@@ -23,21 +23,21 @@ use chromiumoxide_cdp::cdp::js_protocol::runtime::{
     AddBindingParams, CallArgument, CallFunctionOnParams, EvaluateParams, ExecutionContextId,
     RemoteObjectType, ScriptId,
 };
-use chromiumoxide_cdp::cdp::{browser_protocol, IntoEventKind};
+use chromiumoxide_cdp::cdp::{IntoEventKind, browser_protocol};
 use chromiumoxide_types::*;
 
 use crate::auth::Credentials;
 use crate::element::Element;
 use crate::error::{CdpError, Result};
+use crate::handler::PageInner;
 use crate::handler::commandfuture::CommandFuture;
 use crate::handler::domworld::DOMWorldKind;
 use crate::handler::httpfuture::HttpFuture;
 use crate::handler::target::{GetName, GetParent, GetUrl, TargetMessage};
-use crate::handler::PageInner;
 use crate::js::{Evaluation, EvaluationResult};
 use crate::layout::Point;
 use crate::listeners::{EventListenerRequest, EventStream};
-use crate::{utils, ArcHttpRequest};
+use crate::{ArcHttpRequest, utils};
 
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -214,12 +214,12 @@ impl Page {
     /// Obfuscates browser plugins on frame creation
     async fn hide_plugins(&self) -> Result<(), CdpError> {
         self.execute(AddScriptToEvaluateOnNewDocumentParams {
-            source: r#"
+            source: "
                 // Create a proper PluginArray-like object (NOT an Array!)
                 // Key insight: PluginArray is array-like but Array.isArray() returns false
-                
                 const makePlugin = (name, filename, description) => {
                     const plugin = Object.create(Plugin.prototype);
+
                     Object.defineProperties(plugin, {
                         name: { value: name, enumerable: true },
                         filename: { value: filename, enumerable: true },
@@ -229,10 +229,9 @@ impl Page {
                     });
                     return plugin;
                 };
-                
+
                 // Create the fake PluginArray using the real PluginArray prototype
                 const fakePlugins = Object.create(PluginArray.prototype);
-                
                 const plugins = [
                     makePlugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
                     makePlugin('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
@@ -240,20 +239,20 @@ impl Page {
                     makePlugin('Microsoft Edge PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
                     makePlugin('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')
                 ];
-                
+
                 // Add indexed access and length
                 plugins.forEach((p, i) => {
                     Object.defineProperty(fakePlugins, i, { value: p, enumerable: true });
                 });
                 Object.defineProperty(fakePlugins, 'length', { value: plugins.length, enumerable: true });
-                
+
                 // Add methods
-                Object.defineProperty(fakePlugins, 'item', { 
+                Object.defineProperty(fakePlugins, 'item', {
                     value: function(index) { return this[index] || null; },
                     enumerable: false
                 });
-                Object.defineProperty(fakePlugins, 'namedItem', { 
-                    value: function(name) { 
+                Object.defineProperty(fakePlugins, 'namedItem', {
+                    value: function(name) {
                         for (let i = 0; i < this.length; i++) {
                             if (this[i].name === name) return this[i];
                         }
@@ -261,11 +260,12 @@ impl Page {
                     },
                     enumerable: false
                 });
-                Object.defineProperty(fakePlugins, 'refresh', { 
+
+                Object.defineProperty(fakePlugins, 'refresh', {
                     value: function() {},
                     enumerable: false
                 });
-                
+
                 // Make it iterable
                 Object.defineProperty(fakePlugins, Symbol.iterator, {
                     value: function* () {
@@ -273,12 +273,13 @@ impl Page {
                     },
                     enumerable: false
                 });
-                
-                Object.defineProperty(Navigator.prototype, 'plugins', {
+
+                Object.defineProperty(Object.getPrototypeOf(navigator), 'plugins', {
                     get: () => fakePlugins,
                     configurable: true
                 });
-            "#.to_string(),
+                "
+            .to_string(),
             world_name: None,
             include_command_line_api: None,
             run_immediately: None,
@@ -307,14 +308,15 @@ impl Page {
         Ok(())
     }
 
-    /// Sets `navigator.webdriver` to false on frame creation
+    /// Sets the `navigator.webdriver` property to `false` on frame creation
     async fn hide_webdriver(&self) -> Result<(), CdpError> {
         self.execute(AddScriptToEvaluateOnNewDocumentParams {
             source: "
-                    Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
-                        get: () => false,
-                        configurable: true
-                    });
+                    Object.defineProperty(
+                        Object.getPrototypeOf(navigator), //Fixes 'Object.getOwnPropertyNames(navigator) should return empty array'
+                        'webdriver',
+                        { get: () => false, configurable: true } //Fixes 'property should not be undefined'
+                    );
                 "
             .to_string(),
             world_name: None,
@@ -650,7 +652,7 @@ impl Page {
     /// immediately loaded when `click()` resolves. To wait until navigation is
     /// finished an additional `wait_for_navigation()` is required:
     ///
-    /// # Example
+    /// # Examples
     ///
     /// Trigger a navigation and wait until the triggered navigation is finished
     ///
@@ -664,9 +666,28 @@ impl Page {
     /// # }
     /// ```
     ///
-    /// # Example
     ///
-    /// Perform custom click
+    /// Use [`click_with()`] to perform a custom click:
+    ///
+    /// ```no_run
+    /// # use chaser_oxide::page::Page;
+    /// # use chaser_oxide::error::Result;
+    /// # use chaser_oxide::layout::Point;
+    /// # use chaser_oxide::types::ClickOptions;
+    /// # async fn demo(page: Page, point: Point) -> Result<()> {
+    ///     let options = ClickOptions::builder()
+    ///         .click_count(2)
+    ///         .build();
+    ///
+    ///     page.click_with(point, options).await?;
+    ///     # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Advanced
+    ///
+    /// For advanced use cases, the same behavior can be achieved manually by
+    /// issuing `DispatchMouseEventParams` commands directly via the CDP API.
     ///
     /// ```no_run
     /// # use chaser_oxide::page::Page;
@@ -701,6 +722,46 @@ impl Page {
     /// ```
     pub async fn click(&self, point: Point) -> Result<&Self> {
         self.inner.click(point).await?;
+        Ok(self)
+    }
+
+    /// Performs a mouse click event at the point's location using the provided
+    /// [`ClickOptions`].
+    ///
+    /// This behaves the same as [`click()`], but allows customizing click behavior
+    /// such as click count or other click-related options.
+    ///
+    /// The point is scrolled into view first, then the corresponding
+    /// `DispatchMouseEventParams` commands are issued according to the supplied
+    /// options.
+    ///
+    /// Bear in mind that if `click_with()` triggers a navigation, the new page is
+    /// not immediately loaded when this function resolves. To wait until navigation
+    /// is finished, an additional [`wait_for_navigation()`] is required.
+    ///
+    /// # Example
+    ///
+    /// Perform a double click using [`ClickOptions`]
+    ///
+    /// ```no_run
+    /// # use chaser_oxide::page::Page;
+    /// # use chaser_oxide::error::Result;
+    /// # use chaser_oxide::layout::Point;
+    /// # use chaser_oxide::types::ClickOptions;
+    /// # async fn demo(page: Page, point: Point) -> Result<()> {
+    ///     let options = ClickOptions::builder()
+    ///         .click_count(2)
+    ///         .build();
+    ///
+    ///     page.click_with(point, options)
+    ///         .await?
+    ///         .wait_for_navigation()
+    ///         .await?;
+    ///     # Ok(())
+    /// # }
+    /// ```
+    pub async fn click_with(&self, point: Point, options: ClickOptions) -> Result<&Self> {
+        self.inner.click_with(point, options).await?;
         Ok(self)
     }
 
@@ -1180,13 +1241,9 @@ impl Page {
                 if expr.context_id.is_none() {
                     expr.context_id = self.execution_context().await?;
                 }
-                let fallback = expr.eval_as_function_fallback.and_then(|p| {
-                    if p {
-                        Some(expr.clone())
-                    } else {
-                        None
-                    }
-                });
+                let fallback = expr
+                    .eval_as_function_fallback
+                    .and_then(|p| if p { Some(expr.clone()) } else { None });
                 let res = self.evaluate_expression(expr).await?;
 
                 if res.object().r#type == RemoteObjectType::Function {
@@ -1303,8 +1360,8 @@ impl Page {
     /// # async fn example(page: Page) -> Result<(), Box<dyn std::error::Error>> {
     /// // Hide webdriver property for stealth scraping
     /// page.evaluate_on_new_document(r#"
-    ///     Object.defineProperty(navigator, 'webdriver', {
-    ///         get: () => undefined
+    ///     Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
+    ///         get: () => false
     ///     });
     /// "#).await?;
     /// # Ok(())
@@ -1437,7 +1494,7 @@ pub(crate) fn validate_cookie_url(url: &str) -> Result<()> {
 }
 
 /// Page screenshot parameters with extra options.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ScreenshotParams {
     /// Chrome DevTools Protocol screenshot options.
     pub cdp_params: CaptureScreenshotParams,
@@ -1467,7 +1524,7 @@ impl ScreenshotParams {
 }
 
 /// Page screenshot parameters builder with extra options.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ScreenshotParamsBuilder {
     cdp_params: CaptureScreenshotParams,
     full_page: Option<bool>,

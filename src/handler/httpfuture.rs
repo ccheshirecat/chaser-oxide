@@ -1,6 +1,6 @@
+use futures::FutureExt;
 use futures::channel::mpsc;
 use futures::future::{Fuse, FusedFuture};
-use futures::FutureExt;
 use pin_project_lite::pin_project;
 use std::future::Future;
 use std::pin::Pin;

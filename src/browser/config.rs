@@ -8,8 +8,8 @@ use std::{
 use super::argument::{Arg, ArgConst, ArgsBuilder};
 use crate::async_process::{self, Child, Stdio};
 use crate::detection::{self, DetectionOptions};
-use crate::handler::viewport::Viewport;
 use crate::handler::REQUEST_TIMEOUT;
+use crate::handler::viewport::Viewport;
 
 /// Default `Browser::launch` timeout in MS
 pub const LAUNCH_TIMEOUT: u64 = 20_000;
@@ -328,6 +328,9 @@ impl BrowserConfigBuilder {
 
     pub fn hide(mut self) -> Self {
         self.hidden = true;
+        if self.hidden && self.viewport == Some(Viewport::default()) {
+            self.viewport = None;
+        }
         self
     }
 
@@ -448,7 +451,7 @@ impl BrowserConfig {
         if let Some(ref envs) = self.process_envs {
             cmd.envs(envs);
         }
-        cmd.stderr(Stdio::piped()).spawn()
+        cmd.stdout(Stdio::null()).stderr(Stdio::piped()).spawn()
     }
 }
 

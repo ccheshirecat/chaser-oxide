@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::handler::target::TargetMessage;
-use crate::{error::Result, ArcHttpRequest};
+use crate::{ArcHttpRequest, error::Result};
 
 type TargetSender = mpsc::Sender<TargetMessage>;
 

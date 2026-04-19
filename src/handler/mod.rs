@@ -20,7 +20,7 @@ use chromiumoxide_types::{CallId, Message, Method, Response};
 use chromiumoxide_types::{MethodId, Request as CdpRequest};
 pub(crate) use page::PageInner;
 
-use crate::cmd::{to_command_response, CommandMessage};
+use crate::cmd::{CommandMessage, to_command_response};
 use crate::conn::Connection;
 use crate::error::{CdpError, Result};
 use crate::handler::browser::BrowserContext;

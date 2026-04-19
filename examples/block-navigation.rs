@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use chaser_oxide::browser::{Browser, BrowserConfig};
-use chaser_oxide::cdp::browser_protocol::fetch::{
+use base64::prelude::BASE64_STANDARD;
+use chromiumoxide::Page;
+use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::fetch::{
     self, ContinueRequestParams, EventRequestPaused, FailRequestParams, FulfillRequestParams,
 };
-use chaser_oxide::cdp::browser_protocol::network::{
+use chromiumoxide::cdp::browser_protocol::network::{
     self, ErrorReason, EventRequestWillBeSent, ResourceType,
 };
-use chaser_oxide::Page;
-use futures::{select, StreamExt};
+use futures::{StreamExt, select};
 use tokio::time::sleep;
 
 const CONTENT: &str = "<html><head><meta http-equiv=\"refresh\" content=\"0;URL='http://www.example.com/'\" /></head><body><h1>TEST</h1></body></html>";

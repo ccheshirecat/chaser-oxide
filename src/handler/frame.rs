@@ -17,10 +17,10 @@ use chromiumoxide_cdp::cdp::js_protocol::runtime::*;
 use chromiumoxide_types::{Method, MethodId, Request};
 
 use crate::error::DeadlineExceeded;
+use crate::handler::REQUEST_TIMEOUT;
 use crate::handler::domworld::DOMWorld;
 use crate::handler::http::HttpRequest;
-use crate::handler::REQUEST_TIMEOUT;
-use crate::{cmd::CommandChain, ArcHttpRequest};
+use crate::{ArcHttpRequest, cmd::CommandChain};
 
 pub const UTILITY_WORLD_NAME: &str = "util";
 const EVALUATION_SCRIPT_URL: &str = "app.js";

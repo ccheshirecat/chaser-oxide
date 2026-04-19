@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::cmd::{to_command_response, CommandMessage};
+use crate::cmd::{CommandMessage, to_command_response};
 use crate::error::Result;
 use crate::handler::target::TargetMessage;
 use chromiumoxide_cdp::cdp::browser_protocol::target::SessionId;

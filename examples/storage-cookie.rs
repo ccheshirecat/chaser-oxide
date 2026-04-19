@@ -26,7 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .path("/")
         .build()?;
 
-    println!("\x1b[32mType 'c' to clear all cookies, 's' to set a cookie, 'q' to quit the browser\x1b[0m");
+    println!(
+        "\x1b[32mType 'c' to clear all cookies, 's' to set a cookie, 'q' to quit the browser\x1b[0m"
+    );
     loop {
         // Read Cookies
         println!("All Browser cookies: {:?}", browser.get_cookies().await?);

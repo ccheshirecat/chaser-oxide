@@ -132,6 +132,8 @@ domain Target
     returns
       # An array of browser context ids.
       array of Browser.BrowserContextID browserContextIds
+      # The id of the default browser context if available.
+      experimental optional Browser.BrowserContextID defaultBrowserContextId
 
   # Creates a new page.
   command createTarget
@@ -265,6 +267,16 @@ domain Target
       # List of remote locations.
       array of RemoteLocation locations
 
+  # Gets the targetId of the DevTools page target opened for the given target
+  # (if any).
+  experimental command getDevToolsTarget
+    parameters
+      # Page or tab target ID.
+      TargetID targetId
+    returns
+      # The targetId of DevTools page target if exists.
+      optional TargetID targetId
+
   # Issued when attached to target because of auto-attach or `attachToTarget` command.
   experimental event attachedToTarget
     parameters
@@ -322,6 +334,10 @@ domain Target
     parameters
       # This can be the page or tab target ID.
       TargetID targetId
+      # The id of the panel we want DevTools to open initially. Currently
+      # supported panels are elements, console, network, sources, resources
+      # and performance.
+      optional string panelId
     returns
       # The targetId of DevTools page target.
       TargetID targetId

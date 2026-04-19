@@ -8,6 +8,7 @@ use futures::channel::oneshot::Sender;
 use futures::stream::Stream;
 use futures::task::{Context, Poll};
 
+use chromiumoxide_cdp::cdp::CdpEventMessage;
 use chromiumoxide_cdp::cdp::browser_protocol::page::{FrameId, GetFrameTreeParams};
 use chromiumoxide_cdp::cdp::browser_protocol::{
     browser::BrowserContextId,
@@ -15,7 +16,6 @@ use chromiumoxide_cdp::cdp::browser_protocol::{
     target::{AttachToTargetParams, SessionId, SetAutoAttachParams, TargetId, TargetInfo},
 };
 use chromiumoxide_cdp::cdp::events::CdpEvent;
-use chromiumoxide_cdp::cdp::CdpEventMessage;
 use chromiumoxide_types::{Command, Method, Request, Response};
 
 use crate::auth::Credentials;
@@ -35,7 +35,7 @@ use crate::handler::page::PageHandle;
 use crate::handler::viewport::Viewport;
 use crate::handler::{PageInner, REQUEST_TIMEOUT};
 use crate::listeners::{EventListenerRequest, EventListeners};
-use crate::{page::Page, ArcHttpRequest};
+use crate::{ArcHttpRequest, page::Page};
 use chromiumoxide_cdp::cdp::js_protocol::runtime::{
     ExecutionContextId, RunIfWaitingForDebuggerParams,
 };

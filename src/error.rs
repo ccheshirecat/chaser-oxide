@@ -33,7 +33,9 @@ pub enum CdpError {
     UnexpectedWsMessage(Message),
     #[error("{0}")]
     ChannelSendError(#[from] ChannelError),
-    #[error("Browser process exited with status {0:?} before websocket URL could be resolved, stderr: {1:?}")]
+    #[error(
+        "Browser process exited with status {0:?} before websocket URL could be resolved, stderr: {1:?}"
+    )]
     LaunchExit(ExitStatus, BrowserStderr),
     #[error("Timeout while resolving websocket URL from browser process, stderr: {0:?}")]
     LaunchTimeout(BrowserStderr),

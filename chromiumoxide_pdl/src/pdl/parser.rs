@@ -221,7 +221,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
         // enum
         if line.starts_with("    enum") {
             member_enum = false;
-            if let Some(Element::Type(ref mut ty)) = element.as_mut() {
+            if let Some(Element::Type(ty)) = element.as_mut() {
                 if ty.item.is_none() {
                     ty.item = Some(Item::Enum(vec![]));
                     continue;

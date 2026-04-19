@@ -8,6 +8,7 @@ use tokio::sync::Semaphore;
 mod basic;
 mod config;
 mod page;
+mod stealth;
 
 static BROWSER_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
 

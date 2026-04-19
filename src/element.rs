@@ -4,7 +4,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::{future, Future, FutureExt, Stream};
+use chromiumoxide_types::ClickOptions;
+use futures::{Future, FutureExt, Stream, future};
 
 use chromiumoxide_cdp::cdp::browser_protocol::dom::{
     BackendNodeId, DescribeNodeParams, GetBoxModelParams, GetContentQuadsParams, Node, NodeId,
@@ -24,7 +25,7 @@ use crate::layout::{BoundingBox, BoxModel, ElementQuad, Point};
 use crate::utils;
 
 /// Represents a [DOM Element](https://developer.mozilla.org/en-US/docs/Web/API/Element).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Element {
     /// The Unique object identifier
     pub remote_object_id: RemoteObjectId,
@@ -268,6 +269,19 @@ impl Element {
     pub async fn click(&self) -> Result<&Self> {
         let center = self.scroll_into_view().await?.clickable_point().await?;
         self.tab.click(center).await?;
+        Ok(self)
+    }
+
+    /// Clicks the element using the provided [`ClickOptions`].
+    ///
+    /// This behaves the same as [`click()`], but allows customizing
+    /// click behavior such as click count.
+    ///
+    /// Note that if the click triggers a navigation, this element
+    /// may no longer exist afterwards.
+    pub async fn click_with(&self, options: ClickOptions) -> Result<&Self> {
+        let center = self.scroll_into_view().await?.clickable_point().await?;
+        self.tab.click_with(center, options).await?;
         Ok(self)
     }
 

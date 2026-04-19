@@ -2,7 +2,7 @@ use crate::build::SerdeSupport;
 use crate::pdl::{Command, DataType, Domain, Event, Item, Param, Type, TypeDef, Variant};
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use std::slice::Iter;
 
 pub struct DomainDataTypeIter<'a> {

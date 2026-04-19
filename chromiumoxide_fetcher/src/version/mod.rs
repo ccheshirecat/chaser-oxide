@@ -49,7 +49,7 @@ impl BrowserVersion {
         // To map a revision to a chromium version you can use the site https://chromiumdash.appspot.com/commits.
 
         match kind {
-            BrowserKind::Chromium => Self::Revision(Revision::new(1520176)),
+            BrowserKind::Chromium => Self::Revision(Revision::new(1585606)),
             BrowserKind::Chrome => Self::Channel(Channel::Stable),
             BrowserKind::ChromeHeadlessShell => Self::Channel(Channel::Stable),
         }

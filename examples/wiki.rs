@@ -16,7 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let page = browser.new_page("https://en.wikipedia.org").await?;
 
-    page.find_element("input#searchInput")
+    page.find_element(".search-toggle").await?.click().await?;
+
+    page.find_element("input[name='search']")
         .await?
         .click()
         .await?

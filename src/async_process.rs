@@ -1,17 +1,11 @@
-//! Internal module providing an async child process abstraction for `async-std` or `tokio`.
+//! Internal module providing an async child process abstraction.
 
 use std::ffi::OsStr;
 use std::pin::Pin;
 pub use std::process::{ExitStatus, Stdio};
 use std::task::{Context, Poll};
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "async-std-runtime")] {
-        use ::async_std::process;
-    } else if #[cfg(feature = "tokio-runtime")] {
-        use ::tokio::process;
-    }
-}
+use tokio::process;
 
 #[derive(Debug)]
 pub struct Command {
@@ -54,6 +48,11 @@ impl Command {
         self
     }
 
+    pub fn stdout<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
+        self.inner.stdout(cfg);
+        self
+    }
+
     pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
         self.inner.stderr(cfg);
         self
@@ -72,9 +71,6 @@ pub struct Child {
 }
 
 /// Wrapper for an async child process.
-///
-/// The inner implementation depends on the selected async runtime (features `async-std-runtime`
-/// or `tokio-runtime`).
 impl Child {
     fn new(mut inner: process::Child) -> Self {
         let stderr = inner.stderr.take();
@@ -87,38 +83,18 @@ impl Child {
     /// Kill the child process synchronously and asynchronously wait for the
     /// child to exit
     pub async fn kill(&mut self) -> std::io::Result<()> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "async-std-runtime")] {
-                self.inner.kill()?;
-                self.wait().await?;
-                Ok(())
-            } else if #[cfg(feature = "tokio-runtime")] {
-                // Tokio already waits internally
-                self.inner.kill().await
-            }
-        }
+        // Tokio already waits internally
+        self.inner.kill().await
     }
 
     /// Asynchronously wait for the child process to exit
     pub async fn wait(&mut self) -> std::io::Result<ExitStatus> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "async-std-runtime")] {
-                self.inner.status().await
-            } else if #[cfg(feature = "tokio-runtime")] {
-                self.inner.wait().await
-            }
-        }
+        self.inner.wait().await
     }
 
     /// If the child process has exited, get its status
     pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "async-std-runtime")] {
-                self.inner.try_status()
-            } else if #[cfg(feature = "tokio-runtime")] {
-                self.inner.try_wait()
-            }
-        }
+        self.inner.try_wait()
     }
 
     /// Return a mutable reference to the inner process
@@ -153,18 +129,12 @@ impl futures::AsyncRead for ChildStderr {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<std::io::Result<usize>> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "async-std-runtime")] {
-                Pin::new(&mut self.inner).poll_read(cx, buf)
-            } else if #[cfg(feature = "tokio-runtime")] {
-                let mut buf = tokio::io::ReadBuf::new(buf);
-                futures::ready!(tokio::io::AsyncRead::poll_read(
-                    Pin::new(&mut self.inner),
-                    cx,
-                    &mut buf
-                ))?;
-                Poll::Ready(Ok(buf.filled().len()))
-            }
-        }
+        let mut buf = tokio::io::ReadBuf::new(buf);
+        futures::ready!(tokio::io::AsyncRead::poll_read(
+            Pin::new(&mut self.inner),
+            cx,
+            &mut buf
+        ))?;
+        Poll::Ready(Ok(buf.filled().len()))
     }
 }

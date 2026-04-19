@@ -1,8 +1,8 @@
 [package]
 name = "chromiumoxide_types"
-version = "0.8.0"
+version = "0.9.1"
 authors = ["Matthias Seitz <matthias.seitz@outlook.de>"]
-edition = "2021"
+edition = "2024"
 description = "Contains the essential types necessary for using chromiumoxide"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/mattsse/chromiumoxide"

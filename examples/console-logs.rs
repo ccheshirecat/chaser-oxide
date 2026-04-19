@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use chaser_oxide::{cdp::js_protocol::runtime::EventConsoleApiCalled, BrowserConfig};
+use chromiumoxide::{BrowserConfig, cdp::js_protocol::runtime::EventConsoleApiCalled};
 use futures::StreamExt;
 
 const TARGET: &str = "https://www.microsoft.com/";
@@ -12,7 +12,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let (mut browser, mut handler) =
-        chaser_oxide::Browser::launch(BrowserConfig::builder().with_head().build().unwrap())
+        chromiumoxide::Browser::launch(BrowserConfig::builder().with_head().build().unwrap())
             .await
             .expect("failed to launch browser");
 

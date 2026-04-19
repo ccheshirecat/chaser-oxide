@@ -3,7 +3,7 @@ mod event;
 pub mod generator;
 mod types;
 
-pub use crate::build::generator::{compile_pdls, Generator, SerdeSupport};
+pub use crate::build::generator::{Generator, SerdeSupport, compile_pdls};
 
 pub const CHROMIUM_BASE: &str = "https://chromium.googlesource.com/chromium/src";
 

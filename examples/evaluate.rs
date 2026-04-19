@@ -64,11 +64,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eval = EvaluateParams::builder().expression("() => {return 42;}");
     // this will fail because the `EvaluationResult` returned by the browser will be
     // of type `Function`
-    assert!(page
-        .evaluate(eval.clone().build().unwrap())
-        .await?
-        .into_value::<usize>()
-        .is_err());
+    assert!(
+        page.evaluate(eval.clone().build().unwrap())
+            .await?
+            .into_value::<usize>()
+            .is_err()
+    );
 
     let val: usize = page
         .evaluate(eval.eval_as_function_fallback(true).build().unwrap())

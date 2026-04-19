@@ -1,10 +1,10 @@
 use std::future::Future;
 use std::io;
 
-use futures::channel::mpsc::{channel, unbounded, Sender};
+use futures::SinkExt;
+use futures::channel::mpsc::{Sender, channel, unbounded};
 use futures::channel::oneshot::channel as oneshot_channel;
 use futures::select;
-use futures::SinkExt;
 
 use chromiumoxide_cdp::cdp::browser_protocol::browser::{
     BrowserContextId, CloseReturns, GetVersionParams, GetVersionReturns,
@@ -22,7 +22,7 @@ use chromiumoxide_types::*;
 
 pub use self::config::{BrowserConfig, BrowserConfigBuilder, LAUNCH_TIMEOUT};
 use crate::async_process::{Child, ExitStatus};
-use crate::cmd::{to_command_response, CommandMessage};
+use crate::cmd::{CommandMessage, to_command_response};
 use crate::conn::Connection;
 use crate::error::{BrowserStderr, CdpError, Result};
 use crate::handler::browser::BrowserContext;
@@ -167,15 +167,8 @@ impl Browser {
             child: &mut Child,
         ) -> Result<(String, Connection<CdpEventMessage>)> {
             let dur = config.launch_timeout;
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "async-std-runtime")] {
-                    let timeout_fut = Box::pin(async_std::task::sleep(dur));
-                } else if #[cfg(feature = "tokio-runtime")] {
-                    let timeout_fut = Box::pin(tokio::time::sleep(dur));
-                } else {
-                    panic!("missing chromiumoxide runtime: enable `async-std-runtime` or `tokio-runtime`")
-                }
-            };
+            let timeout_fut = Box::pin(tokio::time::sleep(dur));
+
             // extract the ws:
             let debug_ws_url = ws_url_from_output(child, timeout_fut).await?;
             let conn = Connection::<CdpEventMessage>::connect(&debug_ws_url).await?;
@@ -298,8 +291,8 @@ impl Browser {
     /// Get the spawned chromium instance
     ///
     /// The instance is spawned by [`Browser::launch`]. The result is a [`async_process::Child`]
-    /// value. It acts as a compat wrapper for an `async-std` or `tokio` child process.
-    ///
+    /// value.
+    ///A
     /// You may use [`async_process::Child::as_mut_inner`] to retrieve the concrete implementation
     /// for the selected runtime.
     ///
@@ -536,7 +529,9 @@ impl Drop for Browser {
                 // so it won't leave any resources locked. It is, however, a better practice for the user to
                 // do it himself since the runtime doesn't provide garantees as to when the reap occurs, so we
                 // warn him here.
-                tracing::warn!("Browser was not closed manually, it will be killed automatically in the background");
+                tracing::warn!(
+                    "Browser was not closed manually, it will be killed automatically in the background"
+                );
             }
         }
     }

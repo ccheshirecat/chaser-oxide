@@ -211,8 +211,8 @@ impl<T: IntoEventKind + Unpin> Stream for EventStream<T> {
 mod tests {
     use futures::{SinkExt, StreamExt};
 
-    use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
     use chromiumoxide_cdp::cdp::CustomEvent;
+    use chromiumoxide_cdp::cdp::browser_protocol::animation::EventAnimationCanceled;
     use chromiumoxide_types::MethodType;
 
     use super::*;

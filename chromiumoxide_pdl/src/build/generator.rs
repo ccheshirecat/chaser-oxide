@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{self, Error, ErrorKind};
+use std::io::{self, Error};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
@@ -163,9 +163,7 @@ impl Generator {
     pub fn compile_pdls<P: AsRef<Path>>(&mut self, pdls: &[P]) -> io::Result<()> {
         let target: PathBuf = self.out_dir.clone().map(Ok).unwrap_or_else(|| {
             std::env::var_os("OUT_DIR")
-                .ok_or_else(|| {
-                    Error::new(ErrorKind::Other, "OUT_DIR environment variable is not set")
-                })
+                .ok_or_else(|| Error::other("OUT_DIR environment variable is not set"))
                 .map(Into::into)
         })?;
 
@@ -174,24 +172,20 @@ impl Generator {
         for path in pdls {
             let path = path.as_ref();
             let file_name = path.file_stem().ok_or_else(|| {
-                Error::new(
-                    ErrorKind::Other,
-                    format!("Failed to read file name for {}", path.display()),
-                )
+                Error::other(format!("Failed to read file name for {}", path.display()))
             })?;
             let mod_name = file_name.to_string_lossy().to_string();
             self.protocol_mods.push(mod_name);
 
             let input = fs::read_to_string(path)?;
-            let resolved =
-                resolve_pdl(path, &input).map_err(|e| Error::new(ErrorKind::Other, e.message))?;
+            let resolved = resolve_pdl(path, &input).map_err(|e| Error::other(e.message))?;
             inputs.push(resolved);
         }
 
         let mut protocols = vec![];
 
         for (idx, input) in inputs.iter().enumerate() {
-            let pdl = parse_pdl(input).map_err(|e| Error::new(ErrorKind::Other, e.message))?;
+            let pdl = parse_pdl(input).map_err(|e| Error::other(e.message))?;
 
             self.domains
                 .extend(pdl.domains.iter().map(|d| (d.name.to_string(), idx)));
